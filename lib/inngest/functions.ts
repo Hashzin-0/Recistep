@@ -12,7 +12,22 @@ import {
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 
 export const processImportRequested = inngest.createFunction(
-  { id: "recistep-process-source-import", retries: 2, triggers: { event: "recistep/import.requested" } },
+  {
+    id: "recistep-process-source-import",
+    retries: 2,
+    triggers: { event: "recistep/import.requested" },
+    onFailure: async ({ event, step }) => {
+      const original = event.data.event as { data?: { id?: unknown } };
+      const failedId = String(original.data?.id ?? "");
+      if (/^[0-9a-f-]{36}$/i.test(failedId)) {
+        await step.run("mark-import-failed-after-retries", () => updateSourceImport(failedId, {
+          status: "failed",
+          error_code: "PROCESSING_FAILED",
+          error_message: "O processamento falhou após as tentativas automáticas. Envie uma transcrição autorizada ou tente novamente.",
+        }));
+      }
+    },
+  },
   async ({ event, step }) => {
     const id = String(event.data.id ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("INVALID_IMPORT_ID");
@@ -59,12 +74,29 @@ export const processImportRequested = inngest.createFunction(
 );
 
 export const processTranscriptSubmitted = inngest.createFunction(
-  { id: "recistep-extract-recipe-from-transcript", retries: 2, triggers: { event: "recistep/import.transcript-submitted" } },
+  {
+    id: "recistep-extract-recipe-from-transcript",
+    retries: 2,
+    triggers: { event: "recistep/import.transcript-submitted" },
+    onFailure: async ({ event, step }) => {
+      const original = event.data.event as { data?: { id?: unknown } };
+      const failedId = String(original.data?.id ?? "");
+      if (/^[0-9a-f-]{36}$/i.test(failedId)) {
+        await step.run("clear-transcript-after-final-failure", () => updateSourceImport(failedId, {
+          status: "failed",
+          source_transcript: null,
+          error_code: "GEMINI_PROCESSING_FAILED",
+          error_message: "A extração falhou após as tentativas automáticas. Envie a transcrição novamente para tentar de novo.",
+        }));
+      }
+    },
+  },
   async ({ event, step }) => {
     const id = String(event.data.id ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("INVALID_IMPORT_ID");
 
-    const record = await step.run("load-import-transcript", async () => getSourceImport(id));
+    // Read outside a durable step so the raw transcript is not persisted in Inngest step history.
+    const record = await getSourceImport(id);
     if (!record) throw new Error("IMPORT_NOT_FOUND");
     if (record.status !== "queued" || !record.source_transcript) {
       return { id, status: record.status, skipped: true };
