@@ -1,18 +1,21 @@
 # Recistep
 
-Aplicativo de receitas inteligentes para transformar fontes de vídeo acessíveis em receitas estruturadas, listas de ingredientes e sessões de preparo.
+Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culinárias, estruturar ingredientes e etapas, ajustar porções e planejar o preparo.
 
-## Estado atual
+## Estado implementado nesta branch
 
-Esta branch contém a fundação da aplicação: interface responsiva inicial, metadados PWA, validação de URLs no servidor e testes unitários para a validação. **A extração de mídia, Gemini, autenticação, banco, fila durável e salvamento de receitas ainda não estão integrados.** A API responde explicitamente com `IMPORT_PIPELINE_NOT_CONFIGURED` após validar uma URL, em vez de simular uma importação.
+- Next.js App Router, React, TypeScript, Zod e Vitest.
+- Validação de URL sem buscar a mídia na rota HTTP.
+- Schema de extração de receita com validação estrita e utilitário determinístico de escala de porções.
+- Migração Supabase com importações, receitas, ingredientes, etapas e políticas RLS por proprietário.
+- Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
+- Workflow durável Inngest para importações e extração de transcrição.
+- Conector YouTube oEmbed para metadados públicos. **Não baixa vídeo nem obtém transcrição.**
+- Extração estruturada Gemini, com schema de saída e validação Zod posterior.
+- Endpoint de envio de transcrição fornecida pelo usuário, necessário quando não há conector autorizado para conteúdo.
+- A importação não vira receita confirmada automaticamente: o resultado Gemini permanece em `review_required`.
 
-## Stack inicial
-
-- Next.js App Router + React + TypeScript
-- Zod para validação da entrada HTTP
-- Vitest para testes unitários
-- PWA manifest
-- CSS responsivo com foco em acessibilidade e estados de interação
+**Limite importante:** o projeto Supabase Recistep não foi provisionado/configurado neste ambiente. A migração está versionada no repositório, mas ainda precisa ser aplicada ao projeto Supabase dedicado. Não há credenciais reais de Supabase, Gemini ou Inngest no repositório. Não declare a aplicação operacional até configurar os serviços e validar a execução.
 
 ## Desenvolvimento local
 
@@ -23,7 +26,7 @@ npm install
 npm run dev
 ```
 
-## Verificações
+Para verificar:
 
 ```bash
 npm test
@@ -31,37 +34,54 @@ npm run typecheck
 npm run build
 ```
 
-## Importação por URL
+## Fluxo API atual
+
+### Iniciar importação
 
 `POST /api/v1/imports`
+
+Requer cabeçalho `Authorization: Bearer <Supabase access token>`. O corpo aceita:
 
 ```json
 {
   "source_url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "locale": "pt-BR"
+  "locale": "pt-BR",
+  "servings_target": 4
 }
 ```
 
-A rota valida o corpo e restringe os hosts reconhecidos. No estado atual, retorna HTTP 503 com o código `IMPORT_PIPELINE_NOT_CONFIGURED` para fontes válidas, porque a aquisição e o processamento durável ainda não foram implementados. Não faz requisições de rede à URL fornecida.
+Opcionalmente envie `Idempotency-Key` para permitir repetição segura da mesma solicitação. A API responde `202` somente após persistir o registro e a fila confirmar o evento. A chave de serviço Supabase nunca deve ser enviada ao navegador.
 
-## Segurança e configuração
+### Consultar estado
 
-- Não adicione segredos a arquivos versionados.
-- `.env.example` lista apenas nomes de configuração futuros.
-- Validar a URL não autoriza baixar a mídia. Cada conector precisará de método de acesso permitido e validação dos redirecionamentos.
-- Antes de habilitar o processamento, implementar autenticação/autorização, rate limiting, fila idempotente, limites de custo e políticas de retenção.
-- Nenhuma credencial Supabase, Gemini ou Inngest está configurada por esta alteração.
+`GET /api/v1/imports/{id}`
+
+Requer autenticação e retorna apenas o registro pertencente ao usuário autenticado; a transcrição bruta não é retornada.
+
+### Fornecer transcrição autorizada
+
+`POST /api/v1/imports/{id}/transcript`
+
+Requer autenticação e JSON `{"transcript":"..." }` com 80 a 80.000 caracteres. A transcrição é guardada temporariamente no banco para o worker; após extração bem-sucedida ou erro terminal, é apagada. O evento Inngest contém apenas o ID, não o texto da transcrição.
+
+### Estados relevantes
+
+- `queued`: registro persistido e evento agendado.
+- `processing`: worker em execução.
+- `source_content_required`: metadados públicos podem estar disponíveis, mas falta conteúdo de receita obtido por método autorizado.
+- `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
+- `failed`: falha terminal ou impossibilidade de agendar o evento.
+
+O conector YouTube implementado consulta apenas o endpoint público oEmbed. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados.
+
+## Configuração de ambiente
+
+Copie `.env.example` para `.env.local` e configure valores reais. Mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
+
+## Migração Supabase
+
+O arquivo `supabase/migrations/20261016000100_recistep_core.sql` cria as tabelas e políticas RLS. Revise e aplique somente no projeto dedicado ao Recistep. A execução da migração e os testes de advisors ainda não foram confirmados.
 
 ## Plano técnico
 
-O plano completo do MVP, organizado em 14 critérios com arquitetura, contratos API, modelo de dados, estratégia Gemini, segurança, testes, etapas, riscos e critérios de conclusão, está em [`plano.md`](./plano.md).
-
-## Contratos de domínio iniciais
-
-- `lib/schemas/recipe.ts`: schema estrito para propostas de receita extraídas por IA, incluindo ingredientes, etapas, tempos, evidências, incertezas e avisos.
-- `lib/recipe/scale-portions.ts`: cálculo determinístico de porções sem conversão automática de unidades nem preenchimento de quantidades desconhecidas.
-- Testes de schema e escala foram adicionados, mas ainda precisam ser executados no CI.
-
-## Próxima etapa
-
-Implementar persistência segura e fila durável, definir e validar o primeiro conector autorizado, e integrar Gemini no servidor com saída estruturada, evidências e revisão humana. A importação só deve ser considerada pronta após testes com conteúdo acessível e confirmação dos limites do provedor.
+O plano detalhado de 14 critérios está em [plano.md](./plano.md). Ele distingue implementação real de itens pendentes.
