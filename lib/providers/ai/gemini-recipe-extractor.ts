@@ -2,23 +2,24 @@ import "server-only";
 import { recipeExtractionSchema, type RecipeExtraction } from "@/lib/schemas/recipe";
 
 const recipeResponseSchema = {
-  type: "OBJECT",
+  type: "object",
+  additionalProperties: false,
   properties: {
-    title: { type: "STRING" },
-    description: { type: ["STRING", "NULL"] },
-    source_language: { type: ["STRING", "NULL"] },
-    servings: { type: ["NUMBER", "NULL"] },
+    title: { type: "string" },
+    description: { type: ["string", "null"] },
+    source_language: { type: ["string", "null"] },
+    servings: { type: ["number", "null"] },
     timings: {
       type: "OBJECT",
       properties: {
-        prep_seconds: { type: ["INTEGER", "NULL"] },
+        prep_seconds: { type: ["integer", "null"] },
         cook_seconds: { type: ["INTEGER", "NULL"] },
         total_seconds: { type: ["INTEGER", "NULL"] },
       },
       required: ["prep_seconds", "cook_seconds", "total_seconds"],
     },
     ingredients: {
-      type: "ARRAY",
+      type: "array",
       items: {
         type: "OBJECT",
         properties: {
@@ -27,7 +28,7 @@ const recipeResponseSchema = {
           unit: { type: ["STRING", "NULL"] },
           notes: { type: ["STRING", "NULL"] },
           source_evidence: { type: ["STRING", "NULL"] },
-          confidence: { type: "NUMBER" },
+          confidence: { type: "number" },
         },
         required: ["name", "quantity", "unit", "notes", "source_evidence", "confidence"],
       },
@@ -37,7 +38,7 @@ const recipeResponseSchema = {
       items: {
         type: "OBJECT",
         properties: {
-          position: { type: "INTEGER" },
+          position: { type: "integer" },
           instruction: { type: "STRING" },
           duration_seconds: { type: ["INTEGER", "NULL"] },
           temperature_value: { type: ["NUMBER", "NULL"] },
@@ -122,7 +123,7 @@ export async function extractRecipeFromTranscript(input: {
       }],
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: recipeResponseSchema,
+        responseJsonSchema: recipeResponseSchema,
         temperature: 0.1,
         maxOutputTokens: 8_000,
       },
