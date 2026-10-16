@@ -52,6 +52,16 @@ A rota valida o corpo e restringe os hosts reconhecidos. No estado atual, retorn
 - Antes de habilitar o processamento, implementar autenticação/autorização, rate limiting, fila idempotente, limites de custo e políticas de retenção.
 - Nenhuma credencial Supabase, Gemini ou Inngest está configurada por esta alteração.
 
+## Plano técnico
+
+O plano completo do MVP, organizado em 14 critérios com arquitetura, contratos API, modelo de dados, estratégia Gemini, segurança, testes, etapas, riscos e critérios de conclusão, está em [`plano.md`](./plano.md).
+
+## Contratos de domínio iniciais
+
+- `lib/schemas/recipe.ts`: schema estrito para propostas de receita extraídas por IA, incluindo ingredientes, etapas, tempos, evidências, incertezas e avisos.
+- `lib/recipe/scale-portions.ts`: cálculo determinístico de porções sem conversão automática de unidades nem preenchimento de quantidades desconhecidas.
+- Testes de schema e escala foram adicionados, mas ainda precisam ser executados no CI.
+
 ## Próxima etapa
 
-Implementar um conector autorizado real e o pipeline assíncrono com persistência, seguido da integração Gemini com saída estruturada, evidências e revisão humana. A integração só deve ser considerada pronta após testes com conteúdo acessível e confirmação dos limites do provedor.
+Implementar persistência segura e fila durável, definir e validar o primeiro conector autorizado, e integrar Gemini no servidor com saída estruturada, evidências e revisão humana. A importação só deve ser considerada pronta após testes com conteúdo acessível e confirmação dos limites do provedor.
