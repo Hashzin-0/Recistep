@@ -15,6 +15,7 @@ create table if not exists public.source_imports (
     'completed', 'failed', 'cancelled'
   )),
   source_metadata jsonb,
+  source_transcript text check (source_transcript is null or length(source_transcript) <= 80000),
   recipe_draft jsonb,
   error_code text,
   error_message text,
