@@ -717,4 +717,14 @@ A fundação inicial já contém UI responsiva, manifest PWA, validação de URL
 
 ## Registro de execução
 
+### 2026-10-16 — Fundação e contratos iniciais (parcial)
+
+- **Branch:** `feat/recistep-mvp-foundation`.
+- **Documentação:** este arquivo `plano.md` foi adicionado com os 14 critérios do MVP.
+- **Contratos:** `lib/schemas/recipe.ts` define validação estrita da proposta de receita extraída, ingredientes, etapas, tempos, incertezas e avisos. Campos ausentes são representados explicitamente como `null` quando aplicável; campos inesperados são rejeitados.
+- **Regra determinística:** `lib/recipe/scale-portions.ts` calcula ajuste proporcional de ingredientes sem conversão de unidades e sem inventar quantidades desconhecidas.
+- **Testes adicionados:** `lib/schemas/recipe.test.ts` e `lib/recipe/scale-portions.test.ts`.
+- **Verificação:** os arquivos foram gravados e relidos via GitHub MCP. Não foi possível executar `npm test`, `npm run typecheck` ou `npm run build` neste ambiente; o CI deve confirmar os resultados.
+- **Limites:** nenhuma conexão real com Gemini, Supabase, worker/fila ou conector de plataforma foi ativada. O pipeline de importação continua deliberadamente não configurado; portanto, esta etapa é parcial e não representa o vertical slice completo.
+
 Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados, testes realmente executados, resultados e limitações. Não marcar uma etapa como concluída apenas porque o código foi escrito; exigir verificação observável.
