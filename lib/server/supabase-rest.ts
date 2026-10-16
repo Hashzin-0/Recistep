@@ -19,6 +19,7 @@ export type SourceImportRecord = {
   idempotency_key: string;
   status: ImportStatus;
   source_metadata: Record<string, unknown> | null;
+  source_transcript: string | null;
   recipe_draft: unknown | null;
   error_code: string | null;
   error_message: string | null;
@@ -154,7 +155,7 @@ export async function updateSourceImport(
   id: string,
   patch: Partial<Pick<
     SourceImportRecord,
-    "status" | "source_metadata" | "recipe_draft" | "error_code" | "error_message" | "attempt_count"
+    "status" | "source_metadata" | "source_transcript" | "recipe_draft" | "error_code" | "error_message" | "attempt_count"
   >>,
 ): Promise<void> {
   const params = new URLSearchParams({ id: `eq.${id}` });
