@@ -104,6 +104,12 @@ export async function POST(request: Request) {
     }, { status: 422 });
   }
 
+  if (headerKey && (headerKey.length < 8 || headerKey.length > 200)) {
+    return NextResponse.json({
+      error: { code: "INVALID_IDEMPOTENCY_KEY", message: "A chave de idempotência deve ter entre 8 e 200 caracteres.", retryable: false },
+    }, { status: 400 });
+  }
+
   const idempotencyKey = headerKey || parsed.data.idempotency_key || randomUUID();
 
   try {
