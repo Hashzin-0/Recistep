@@ -17,6 +17,8 @@ export const processImportRequested = inngest.createFunction(
     id: "recistep-process-source-import",
     idempotency: "event.data.id",
     retries: 2,
+    concurrency: { limit: 3 },
+    throttle: { limit: 2, period: "1m", burst: 1, key: "event.data.user_id" },
     triggers: { event: "recistep/import.requested" },
     onFailure: async ({ event, step }) => {
       const original = event.data.event as { data?: { id?: unknown } };
@@ -128,6 +130,8 @@ export const processTranscriptSubmitted = inngest.createFunction(
     id: "recistep-extract-recipe-from-transcript",
     idempotency: "event.data.submission_id",
     retries: 2,
+    concurrency: { limit: 3 },
+    throttle: { limit: 2, period: "1m", burst: 1, key: "event.data.user_id" },
     triggers: { event: "recistep/import.transcript-submitted" },
     onFailure: async ({ event, step }) => {
       const original = event.data.event as { data?: { id?: unknown } };
