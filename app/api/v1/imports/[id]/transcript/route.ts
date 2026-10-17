@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inngest, isInngestConfigured } from "@/lib/inngest/client";
@@ -47,9 +48,22 @@ export async function POST(
     }, { status: 401 });
   }
 
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (declaredLength > 120_000) {
+    return NextResponse.json({
+      error: { code: "REQUEST_TOO_LARGE", message: "A transcrição ultrapassa o limite permitido.", retryable: false },
+    }, { status: 413 });
+  }
+
   let payload: unknown;
   try {
-    payload = await request.json();
+    const raw = await request.text();
+    if (raw.length > 120_000) {
+      return NextResponse.json({
+        error: { code: "REQUEST_TOO_LARGE", message: "A transcrição ultrapassa o limite permitido.", retryable: false },
+      }, { status: 413 });
+    }
+    payload = JSON.parse(raw);
   } catch {
     return NextResponse.json({
       error: { code: "INVALID_JSON", message: "Envie um JSON válido.", retryable: false },
@@ -91,7 +105,7 @@ export async function POST(
     });
 
     try {
-      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id } });
+      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id, submission_id: randomUUID() } });
     } catch {
       await updateSourceImport(id, {
         status: "failed",
