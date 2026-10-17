@@ -66,7 +66,7 @@ begin
   returning id into v_recipe_id;
 
   insert into public.ingredients (
-    recipe_id, name, quantity, unit, notes, source_evidence, confidence, position
+    recipe_id, name, section, quantity, unit, notes, source_evidence, confidence, position
   )
   select
     v_recipe_id,
