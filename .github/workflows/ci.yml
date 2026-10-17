@@ -21,14 +21,3 @@ jobs:
         run: npm run typecheck
       - name: Production build
         run: npm run build
-  media-extractor:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install extractor dependencies
-        run: python -m pip install --disable-pip-version-check -r services/media-extractor/requirements.txt -r services/media-extractor/requirements-dev.txt
-      - name: Test media extractor validation
-        run: python -m pytest services/media-extractor/test_main.py

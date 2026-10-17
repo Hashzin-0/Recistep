@@ -2,6 +2,15 @@
 
 Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culinárias, estruturar ingredientes e etapas, ajustar porções e planejar o preparo.
 
+## Motor opcional de mídia do Instagram e TikTok
+
+O Recistep pode usar o ator hospedado `coder2077/social-media-downloader` da Apify para resolver vídeos públicos sem manter um serviço Python próprio. Configure `APIFY_API_TOKEN` como variável server-only no projeto Vercel. Crie o token na sua conta Apify e não o exponha no navegador nem no repositório.
+
+O ator usa cobrança por resultado; confira o preço atual no [Apify Store](https://apify.com/coder2077/social-media-downloader) antes de ativar. O Recistep só usa esse caminho quando o token está configurado; sem ele ou quando a extração falha, os conectores existentes continuam como fallback. A URL de mídia retornada é validada antes de ser encaminhada ao Gemini.
+
+Não é necessário hospedar um serviço próprio. A integração depende da disponibilidade e das regras do provedor e só deve ser usada com conteúdo público que você tenha autorização para processar. Vídeos privados, removidos ou que exijam login podem falhar.
+
+
 ## Estado implementado nesta branch
 
 - Next.js App Router, React, TypeScript, Zod e Vitest.
@@ -89,14 +98,6 @@ O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
 O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, os CDNs recusam requisições sem login, então a receita é extraída da legenda pública (oEmbed); quando a legenda não traz a receita, o link é reportado como não analisável. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
-
-## Motor opcional de mídia para Instagram e TikTok
-
-O Recistep pode usar um serviço Python separado com yt-dlp para resolver URLs diretas de MP4 de vídeos públicos do Instagram e TikTok. O motor não roda dentro da função serverless Next.js: isso evita depender de binários Python ou processos de mídia no runtime da Vercel. O serviço não baixa nem armazena o vídeo; ele retorna uma URL temporária que o Recistep valida antes de enviá-la ao Gemini.
-
-O motor é **opcional** e só é ativado quando `MEDIA_EXTRACTOR_URL` e `MEDIA_EXTRACTOR_API_KEY` estão configuradas no ambiente server-side. Sem elas, os conectores existentes continuam funcionando. Consulte [services/media-extractor/README.md](services/media-extractor/README.md) para executar e hospedar o serviço.
-
-O serviço usa apenas acesso público, sem cookies, sessões de navegador, proxies ou bypass de autenticação/DRM. URLs de mídia são revalidadas por host permitido e tamanho; se o extrator falhar, o fluxo existente de legenda/transcrição continua disponível. Não há garantia de que uma URL funcionará: as plataformas podem alterar seus mecanismos ou bloquear acessos.
 
 ## Login com Google pelo Supabase
 
