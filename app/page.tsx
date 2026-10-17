@@ -1,44 +1,238 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 type ImportFeedback =
   | { kind: "error"; message: string }
   | { kind: "info"; message: string }
   | null;
 
+type RecipeDraft = {
+  title?: string;
+  ingredients?: Array<{ name: string; quantity: number | null; unit: string | null; notes: string | null }>;
+  steps?: Array<{ position: number; instruction: string; duration_seconds: number | null }>;
+  uncertainties?: string[];
+  warnings?: string[];
+};
+
+type ImportRecord = {
+  id: string;
+  status: string;
+  error_message?: string | null;
+  source_metadata?: { title?: string; author_name?: string | null } | null;
+  recipe_draft?: RecipeDraft | null;
+};
+
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    queued: "Na fila de processamento",
+    processing: "Processando",
+    source_content_required: "Aguardando transcrição autorizada",
+    review_required: "Rascunho pronto para revisão",
+    completed: "Concluída",
+    failed: "Falhou",
+    cancelled: "Cancelada",
+  };
+  return labels[status] ?? status;
+}
+
 export default function HomePage() {
+  const supabase = createBrowserSupabaseClient();
   const [sourceUrl, setSourceUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAuthBusy, setIsAuthBusy] = useState(false);
+  const [isSubmittingTranscript, setIsSubmittingTranscript] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+  const [authFeedback, setAuthFeedback] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ImportFeedback>(null);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [importRecord, setImportRecord] = useState<ImportRecord | null>(null);
+  const [transcript, setTranscript] = useState("");
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthFeedback("Autenticação indisponível: configure as variáveis públicas do Supabase.");
+      return;
+    }
+
+    void supabase.auth.getSession().then(({ data }) => {
+      setAccessToken(data.session?.access_token ?? null);
+      setSignedInEmail(data.session?.user.email ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccessToken(session?.access_token ?? null);
+      setSignedInEmail(session?.user.email ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!supabase || !accessToken || !activeImportId ||
+      !["queued", "processing"].includes(importRecord?.status ?? "")) return;
+
+    let stopped = false;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/v1/imports/" + activeImportId, {
+          headers: { Authorization: "Bearer " + accessToken },
+          cache: "no-store",
+        });
+        if (!response.ok || stopped) return;
+        const body = await response.json() as { data?: ImportRecord };
+        if (body.data && !stopped) setImportRecord(body.data);
+      } catch {
+        // Status polling is best-effort; the manual refresh action remains available.
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [supabase, accessToken, activeImportId, importRecord?.status]);
+
+  async function handleSignIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) {
+      setAuthFeedback("Configure o Supabase para habilitar autenticação.");
+      return;
+    }
+    setIsAuthBusy(true);
+    setAuthFeedback(null);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+      if (error) {
+        setAuthFeedback("Não foi possível entrar. Confira e-mail e senha.");
+        return;
+      }
+      setAuthPassword("");
+      setAuthFeedback("Sessão iniciada.");
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
+  async function handleSignUp() {
+    if (!supabase) {
+      setAuthFeedback("Configure o Supabase para habilitar autenticação.");
+      return;
+    }
+    if (!authEmail.trim() || authPassword.length < 8) {
+      setAuthFeedback("Informe um e-mail válido e uma senha com pelo menos 8 caracteres.");
+      return;
+    }
+    setIsAuthBusy(true);
+    setAuthFeedback(null);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+      if (error) {
+        setAuthFeedback("Não foi possível criar a conta. Confira os dados e as configurações de Auth.");
+        return;
+      }
+      setAuthPassword("");
+      setAuthFeedback(data.session
+        ? "Conta criada e sessão iniciada."
+        : "Conta criada. Confira seu e-mail para confirmar o cadastro antes de entrar.");
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
+  async function handleSignOut() {
+    if (!supabase) return;
+    setIsAuthBusy(true);
+    try {
+      await supabase.auth.signOut();
+      setAuthFeedback("Sessão encerrada.");
+      setActiveImportId(null);
+      setImportRecord(null);
+      setTranscript("");
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
+  async function refreshImportStatus() {
+    if (!supabase || !activeImportId) return;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      setFeedback({ kind: "error", message: "Entre novamente para consultar esta importação." });
+      return;
+    }
+    try {
+      const response = await fetch("/api/v1/imports/" + activeImportId, {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const body = await response.json() as {
+        data?: ImportRecord;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível consultar o estado." });
+        return;
+      }
+      setImportRecord(body.data);
+    } catch {
+      setFeedback({ kind: "error", message: "Não foi possível consultar o estado agora." });
+    }
+  }
 
   async function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
+    if (!supabase || !accessToken) {
+      setFeedback({ kind: "info", message: "Entre na sua conta para iniciar uma importação." });
+      return;
+    }
     setIsSubmitting(true);
 
     try {
       const response = await fetch("/api/v1/imports", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + accessToken,
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({ source_url: sourceUrl, locale: "pt-BR" }),
       });
 
       const body: {
         error?: { message?: string; code?: string };
+        data?: ImportRecord;
       } = await response.json();
 
       if (!response.ok) {
         setFeedback({
           kind: response.status === 503 ? "info" : "error",
-          message:
-            body.error?.message ??
-            "Não foi possível validar esse link. Tente novamente.",
+          message: body.error?.message ?? "Não foi possível iniciar esta importação.",
         });
         return;
       }
 
-      setFeedback({ kind: "info", message: "Solicitação recebida." });
+      if (body.data?.id) {
+        setActiveImportId(body.data.id);
+        setImportRecord(body.data);
+        setTranscript("");
+        setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
+      } else {
+        setFeedback({ kind: "error", message: "O servidor não retornou um identificador de importação." });
+      }
     } catch {
       setFeedback({
         kind: "error",
@@ -46,6 +240,46 @@ export default function HomePage() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleTranscriptSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !activeImportId || !accessToken) {
+      setFeedback({ kind: "error", message: "Entre na sua conta e selecione uma importação válida." });
+      return;
+    }
+    if (transcript.trim().length < 80 || transcript.trim().length > 80_000) {
+      setFeedback({ kind: "error", message: "A transcrição deve conter entre 80 e 80.000 caracteres." });
+      return;
+    }
+
+    setIsSubmittingTranscript(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/v1/imports/" + activeImportId + "/transcript", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + accessToken,
+        },
+        body: JSON.stringify({ transcript }),
+      });
+      const body = await response.json() as {
+        data?: { id: string; status: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível enviar a transcrição." });
+        return;
+      }
+      setImportRecord((previous) => previous ? { ...previous, status: "queued", error_message: null } : previous);
+      setTranscript("");
+      setFeedback({ kind: "info", message: "Transcrição enviada. A extração está na fila." });
+    } catch {
+      setFeedback({ kind: "error", message: "Não foi possível enviar a transcrição agora." });
+    } finally {
+      setIsSubmittingTranscript(false);
     }
   }
 
@@ -84,6 +318,53 @@ export default function HomePage() {
           <div className="card-kicker">IMPORTAR RECEITA</div>
           <h2>Encontrou algo gostoso?</h2>
           <p className="card-description">Cole o link do vídeo para começar a organizar a receita.</p>
+          <div className="auth-panel">
+            {signedInEmail ? (
+              <div className="auth-signed-in">
+                <div>
+                  <span className="auth-label">CONECTADO</span>
+                  <strong>{signedInEmail}</strong>
+                </div>
+                <button className="auth-secondary-button" type="button" onClick={handleSignOut} disabled={isAuthBusy}>
+                  Sair
+                </button>
+              </div>
+            ) : (
+              <form className="auth-form" onSubmit={handleSignIn}>
+                <div className="auth-panel-title">Entre para salvar suas receitas</div>
+                <label htmlFor="auth-email">E-mail</label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  autoComplete="email"
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  maxLength={254}
+                  required
+                />
+                <label htmlFor="auth-password">Senha</label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  minLength={8}
+                  maxLength={128}
+                  required
+                />
+                <div className="auth-actions">
+                  <button className="auth-primary-button" type="submit" disabled={isAuthBusy}>
+                    {isAuthBusy ? "Aguarde…" : "Entrar"}
+                  </button>
+                  <button className="auth-secondary-button" type="button" onClick={handleSignUp} disabled={isAuthBusy}>
+                    Criar conta
+                  </button>
+                </div>
+              </form>
+            )}
+            {authFeedback && <p className="auth-feedback" role="status" aria-live="polite">{authFeedback}</p>}
+          </div>
           <form onSubmit={handleImport}>
             <label htmlFor="source-url">Link do vídeo</label>
             <div className="url-field">
@@ -118,6 +399,71 @@ export default function HomePage() {
               <span aria-hidden="true">{feedback.kind === "error" ? "!" : "i"}</span>
               {feedback.message}
             </div>
+          )}
+
+          {activeImportId && importRecord && (
+            <section className="import-status" aria-labelledby="import-status-heading">
+              <div className="import-status-heading">
+                <div>
+                  <span className="auth-label">IMPORTAÇÃO</span>
+                  <h3 id="import-status-heading">{statusLabel(importRecord.status)}</h3>
+                </div>
+                <button className="auth-secondary-button" type="button" onClick={refreshImportStatus}>
+                  Atualizar
+                </button>
+              </div>
+              {importRecord.source_metadata?.title && (
+                <p className="source-metadata-title">{importRecord.source_metadata.title}</p>
+              )}
+              {importRecord.error_message && importRecord.status === "failed" && (
+                <p className="field-hint">{importRecord.error_message}</p>
+              )}
+              {importRecord.status === "source_content_required" && (
+                <form className="transcript-form" onSubmit={handleTranscriptSubmit}>
+                  <label htmlFor="source-transcript">Transcrição autorizada do vídeo</label>
+                  <textarea
+                    id="source-transcript"
+                    value={transcript}
+                    onChange={(event) => setTranscript(event.target.value)}
+                    minLength={80}
+                    maxLength={80000}
+                    rows={5}
+                    placeholder="Cole aqui a transcrição falada ou o texto da receita que você tem direito de usar."
+                    required
+                  />
+                  <p className="field-hint">O Recistep não baixa o vídeo nem contorna restrições. A transcrição é apagada após o processamento terminal.</p>
+                  <button className="import-button transcript-submit" type="submit" disabled={isSubmittingTranscript}>
+                    {isSubmittingTranscript ? "Enviando…" : "Extrair receita"}
+                  </button>
+                </form>
+              )}
+              {importRecord.status === "review_required" && importRecord.recipe_draft && (
+                <div className="recipe-draft">
+                  <h4>{importRecord.recipe_draft.title ?? "Rascunho de receita"}</h4>
+                  <p className="field-hint">Rascunho gerado por IA. Revise os campos antes de considerar a receita confirmada.</p>
+                  <strong>Ingredientes</strong>
+                  <ul>
+                    {(importRecord.recipe_draft.ingredients ?? []).map((ingredient, index) => (
+                      <li key={index}>
+                        {ingredient.name}
+                        {ingredient.quantity !== null && ingredient.quantity !== undefined ? " — " + ingredient.quantity : ""}
+                        {ingredient.unit ? " " + ingredient.unit : ""}
+                        {ingredient.notes ? " (" + ingredient.notes + ")" : ""}
+                      </li>
+                    ))}
+                  </ul>
+                  <strong>Etapas</strong>
+                  <ol>
+                    {(importRecord.recipe_draft.steps ?? []).slice().sort((a, b) => a.position - b.position).map((step) => (
+                      <li key={step.position}>{step.instruction}</li>
+                    ))}
+                  </ol>
+                  {(importRecord.recipe_draft.uncertainties ?? []).length > 0 && (
+                    <p className="field-hint">Pontos incertos: {importRecord.recipe_draft.uncertainties?.join(" · ")}</p>
+                  )}
+                </div>
+              )}
+            </section>
           )}
 
           <div className="supported-divider"><span /> FEITO PARA RECEITAS REAIS <span /></div>
