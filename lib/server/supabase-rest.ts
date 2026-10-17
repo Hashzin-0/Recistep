@@ -18,6 +18,7 @@ export type SourceImportRecord = {
   servings_target: number | null;
   idempotency_key: string;
   status: ImportStatus;
+  recipe_id?: string | null;
   source_metadata: Record<string, unknown> | null;
   source_transcript: string | null;
   recipe_draft: unknown | null;
