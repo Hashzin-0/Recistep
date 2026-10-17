@@ -4,7 +4,7 @@ import { getRecipeForUser, getSupabaseConfig } from "@/lib/server/supabase-rest"
 import { draftFromDbRecipe } from "@/lib/recipe/recipe-draft";
 
 export const runtime = "nodejs";
-const MODEL = "gemini-3.8-flash";
+const MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await authenticateRequest(request);
@@ -32,10 +32,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       `Receita: ${title}`,
       ...steps.map((step, index) => `${index + 1}. ${step}`),
     ].join("\n");
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], responseFormat: { image: { aspectRatio: "3:4", imageSize: "1K" } } } }),
       signal: AbortSignal.timeout(90000),
     });
     const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string }; inline_data?: { data?: string; mime_type?: string } }[] } }[]; error?: { message?: string } } | null;
