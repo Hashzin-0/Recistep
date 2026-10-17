@@ -56,17 +56,16 @@ Preservar a seleção de conteúdo por prioridade e os limites de host. Usar fix
 - **Pipeline:** o reconhecimento de URL não garante acesso à mídia. Se o conteúdo público não puder ser obtido, o fluxo atual pode solicitar transcrição ao usuário; não simular sucesso nem inventar dados.
 - **Qualidade:** novos parsers precisam de testes unitários com HTML/JSON de fixture, incluindo payload ausente/malformado, redirecionamentos, URLs de CDN não permitidas, captions vazias e falhas temporárias.
 
-## Plano recomendado de integração incremental
+## Integração realizada nesta etapa
 
-1. **Manter as implementações upstream fora das dependências de produção.** Registrar origem/licença e limitações, como feito neste documento.
-2. **Comparar as estruturas de metadados** com os parsers já existentes antes de alterar comportamento. Não assumir que os formatos antigos seguem atuais.
-3. **Implementar apenas fallback de metadados públicos** quando houver evidência de que melhora o caso de uso de uma URL individual; revalidar todas as URLs externas através de `safe-fetch.ts` e `platform-hosts.ts`.
-4. **Adicionar testes de regressão antes de mudar o fluxo**: Instagram com oEmbed indisponível, TikTok sem bloco de reidratação, legendas ausentes, mídia expirada e página de login/bloqueio.
-5. **Validar CI na ordem definida pelo projeto:** `npm test`, `npm run typecheck`, `npm run build`. Testes reais contra Instagram/TikTok são separados dos testes determinísticos e podem falhar por bloqueios externos; não usar isso como motivo para remover as proteções de segurança.
-6. **Revisar comportamento e política de acesso** antes de adicionar sessões autenticadas, proxies ou extração de feeds em lote.
+1. **Instagram:** o conector mantém o oEmbed como primeira opção e agora tenta recuperar uma legenda de metadados HTML públicos (`og:description`, `description`, `twitter:description`) ou do formato legado `_sharedData` quando o oEmbed está indisponível. O texto continua limitado e não se aceita mídia sem allowlist e probe.
+2. **TikTok:** o conector mantém o payload atual `__UNIVERSAL_DATA_FOR_REHYDRATION__` como primeira opção e agora reconhece também `SIGI_STATE.ItemModule`, selecionando o vídeo pelo ID da URL. As URLs de mídia continuam sujeitas à allowlist e ao probe existentes.
+3. **Testes:** foram adicionados testes determinísticos para a legenda HTML do Instagram e para o payload legado do TikTok. Nenhum teste precisa acessar as plataformas reais.
+4. **Dependências:** nenhum motor upstream ou dependência legada foi adicionado. Foram reutilizados somente formatos públicos de payload, preservando o contrato `SourceConnector` e a execução server-only.
+5. **Validação pendente:** executar/confirmar `npm test`, `npm run typecheck` e `npm run build` no CI antes de merge. Não declarar que os scrapers upstream completos foram clonados nem que scraping externo está garantido.
 
 ## Conclusão
 
 Os dois repositórios foram obtidos por meio do conteúdo público do GitHub para inspeção, mas não foram clonados localmente por indisponibilidade de DNS no ambiente. A integração de menor risco é aproveitar conhecimento sobre formatos e falhas comuns, sem incorporar os motores legados. O Recistep deve continuar com conectores pequenos, tipados, isolados no servidor e protegidos por allowlists, mantendo a alternativa de transcrição manual quando a plataforma não disponibilizar conteúdo público suficiente.
 
-**Estado desta alteração:** documentação de análise adicionada; nenhum código de runtime, dependência, segredo, migration ou comportamento de produção foi alterado nesta etapa.
+**Estado desta alteração:** os conectores Instagram e TikTok e seus testes foram alterados nesta branch. A integração é seletiva e baseada em formatos de payload; não é um transplante dos motores completos. O clone local upstream continua indisponível por falha DNS do ambiente.
