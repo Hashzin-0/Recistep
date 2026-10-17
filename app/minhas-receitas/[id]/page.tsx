@@ -11,18 +11,35 @@ import { apiFetch } from "@/lib/client/api";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
 
 function ingredientIcon(name: string): string {
-  const value = name.toLocaleLowerCase("pt-BR");
-  if (/leite|creme|iogurte|manteiga|queijo/.test(value)) return "🥛";
-  if (/ovo/.test(value)) return "🥚";
-  if (/açúcar|mel|adoçante/.test(value)) return "🍯";
-  if (/farinha|trigo|amido|fermento/.test(value)) return "🌾";
-  if (/carne|frango|peixe|bacon/.test(value)) return "🥩";
-  if (/tomate|cenoura|cebola|alho|batata|legume|verdura/.test(value)) return "🥕";
-  if (/limão|laranja|morango|banana|maçã|fruta/.test(value)) return "🍋";
-  if (/arroz|feijão|lentilha|grão/.test(value)) return "🥣";
-  if (/óleo|azeite/.test(value)) return "🫒";
-  if (/chocolate|cacau/.test(value)) return "🍫";
-  return "🧂";
+  const value = name.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("pt-BR");
+
+  // Specific matches must precede broad ingredient families to avoid misleading icons.
+  if (/\\bbanana(s)?\\b/.test(value)) return "🍌";
+  if (/\\b(manteiga|butter)\\b/.test(value)) return "🧈";
+  if (/\\b(acucar|adocante|sweetener)\\b/.test(value)) return "🥄";
+  if (/\\b(mel|honey)\\b/.test(value)) return "🍯";
+  if (/\\b(canela|cinnamon|especiaria|tempero)\\b/.test(value)) return "🌿";
+  if (/\\b(limao|lemon)\\b/.test(value)) return "🍋";
+  if (/\\b(laranja|orange)\\b/.test(value)) return "🍊";
+  if (/\\b(morango|strawberry)\\b/.test(value)) return "🍓";
+  if (/\\b(maca|apple)\\b/.test(value)) return "🍎";
+  if (/\\b(ovo|ovos|egg|eggs)\\b/.test(value)) return "🥚";
+  if (/\\b(leite|creme|iogurte|queijo|cream|milk|yogurt|cheese)\\b/.test(value)) return "🥛";
+  if (/\\b(farinha|trigo|amido|fermento|flour|starch)\\b/.test(value)) return "🌾";
+  if (/\\b(frango|carne|bacon|beef|chicken|pork)\\b/.test(value)) return "🥩";
+  if (/\\b(peixe|sardinha|atum|fish|tuna)\\b/.test(value)) return "🐟";
+  if (/\\btomate\\b/.test(value)) return "🍅";
+  if (/\\b(cenoura|carrot)\\b/.test(value)) return "🥕";
+  if (/\\b(cebola|onion)\\b/.test(value)) return "🧅";
+  if (/\\b(alho|garlic)\\b/.test(value)) return "🧄";
+  if (/\\b(batata|potato)\\b/.test(value)) return "🥔";
+  if (/\\b(legume|verdura|vegetal|vegetable)\\b/.test(value)) return "🥬";
+  if (/\\b(arroz|rice)\\b/.test(value)) return "🍚";
+  if (/\\b(feijao|lentilha|grao|bean|lentil)\\b/.test(value)) return "🫘";
+  if (/\\b(oleo|azeite|olive oil)\\b/.test(value)) return "🫒";
+  if (/\\b(chocolate|cacau|cocoa)\\b/.test(value)) return "🍫";
+  if (/\\b(sal|salt)\\b/.test(value)) return "🧂";
+  return "🍽️";
 }
 
 function quantityLabel(quantity: number | null, unit: string | null, text: string | null | undefined): string {
