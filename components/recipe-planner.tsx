@@ -50,7 +50,7 @@ export function ShoppingListPanel({ recipeId, accessToken }: { recipeId: string;
     } catch { setList(previous); setError("Não foi possível salvar o estado do item."); }
   }
   return <section className="shopping-list-panel" aria-label="Lista de compras">
-    <button className="import-button" type="button" onClick={() => void create()} disabled={busy || !accessToken}>{busy ? "Gerando lista…" : list ? "Atualizar lista de compras" : "Gerar lista de compras"}</button>
+    <button className="import-button" type="button" onClick={() => void create()} disabled={busy || !accessToken}>{busy ? "Gerando lista…" : list ? "Gerar outra lista" : "Gerar lista de compras"}</button>
     {error && <p role="alert" className="feedback-error">{error}</p>}
     {list && <>
       <h4>{list.title}</h4>
