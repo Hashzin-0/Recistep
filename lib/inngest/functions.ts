@@ -97,7 +97,7 @@ export const processImportRequested = inngest.createFunction(
       const code = error instanceof Error ? error.message : "GEMINI_EXTRACTION_FAILURE";
       if (error instanceof GeminiExtractionError && error.retryable) throw error;
 
-      if (["GEMINI_NOT_CONFIGURED", "GEMINI_REQUEST_REJECTED", "UNSUPPORTED_SOURCE"].includes(code)) {
+      if (["GEMINI_REQUEST_REJECTED_400", "UNSUPPORTED_SOURCE"].includes(code)) {
         await step.run("request-transcript-fallback", async () => updateSourceImport(id, {
           status: "source_content_required",
           error_code: code,
@@ -110,7 +110,13 @@ export const processImportRequested = inngest.createFunction(
       await step.run("persist-extraction-error", async () => updateSourceImport(id, {
         status: "failed",
         error_code: code,
-        error_message: "Não foi possível extrair a receita. Você pode tentar novamente fornecendo uma transcrição autorizada.",
+        error_message: code === "GEMINI_NOT_CONFIGURED"
+          ? "A chave Gemini não está configurada no servidor."
+          : code === "GEMINI_AUTHENTICATION_FAILED"
+            ? "A credencial Gemini foi rejeitada; confira a configuração do servidor."
+            : code === "GEMINI_MODEL_UNAVAILABLE"
+              ? "O modelo Gemini configurado não está disponível."
+              : "Não foi possível extrair a receita. Você pode tentar novamente fornecendo uma transcrição autorizada.",
       }));
       return { id, status: "failed" };
     }
