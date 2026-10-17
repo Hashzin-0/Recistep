@@ -14,6 +14,7 @@ import {
 export const processImportRequested = inngest.createFunction(
   {
     id: "recistep-process-source-import",
+    idempotency: "event.data.id",
     retries: 2,
     triggers: { event: "recistep/import.requested" },
     onFailure: async ({ event, step }) => {
@@ -76,6 +77,7 @@ export const processImportRequested = inngest.createFunction(
 export const processTranscriptSubmitted = inngest.createFunction(
   {
     id: "recistep-extract-recipe-from-transcript",
+    idempotency: "event.data.submission_id",
     retries: 2,
     triggers: { event: "recistep/import.transcript-submitted" },
     onFailure: async ({ event, step }) => {
@@ -98,7 +100,7 @@ export const processTranscriptSubmitted = inngest.createFunction(
     // Read outside a durable step so the raw transcript is not persisted in Inngest step history.
     const record = await getSourceImport(id);
     if (!record) throw new Error("IMPORT_NOT_FOUND");
-    if (record.status !== "queued" || !record.source_transcript) {
+    if (!["queued", "processing"].includes(record.status) || !record.source_transcript) {
       return { id, status: record.status, skipped: true };
     }
 
