@@ -2,12 +2,12 @@ import "server-only";
 import { inngest } from "@/lib/inngest/client";
 import {
   getSourceImport,
-  saveSourceMetadata,
   updateSourceImport,
 } from "@/lib/server/supabase-rest";
 import { fetchYouTubePublicMetadata } from "@/lib/providers/sources/youtube-oembed";
 import {
   extractRecipeFromTranscript,
+  extractRecipeFromYouTubeUrl,
   GeminiExtractionError,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 
@@ -54,12 +54,17 @@ export const processImportRequested = inngest.createFunction(
       return { id, status: "source_content_required" };
     }
 
+    let metadata;
     try {
-      const metadata = await step.run("fetch-public-source-metadata", async () =>
+      metadata = await step.run("fetch-public-source-metadata", async () =>
         fetchYouTubePublicMetadata(record.source_url),
       );
-      await step.run("persist-public-source-metadata", async () => saveSourceMetadata(id, metadata));
-      return { id, status: "source_content_required" };
+      await step.run("persist-public-source-metadata", async () => updateSourceImport(id, {
+        status: "processing",
+        source_metadata: metadata,
+        error_code: null,
+        error_message: null,
+      }));
     } catch (error) {
       const code = error instanceof Error ? error.message : "SOURCE_METADATA_FAILURE";
       if (code === "SOURCE_PROVIDER_TEMPORARY_FAILURE") throw error;
@@ -70,6 +75,43 @@ export const processImportRequested = inngest.createFunction(
           "Não foi possível obter metadados públicos. Você ainda pode continuar fornecendo uma transcrição autorizada.",
       }));
       return { id, status: "source_content_required", metadataUnavailable: true };
+    }
+
+    try {
+      const draft = await step.run("extract-recipe-from-public-youtube-video", async () =>
+        extractRecipeFromYouTubeUrl({
+          sourceUrl: record.source_url,
+          locale: record.locale,
+          sourceTitle: metadata.title,
+        }),
+      );
+      await step.run("persist-recipe-draft-for-review", async () => updateSourceImport(id, {
+        status: "review_required",
+        recipe_draft: draft,
+        error_code: null,
+        error_message: null,
+      }));
+      return { id, status: "review_required" };
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "GEMINI_EXTRACTION_FAILURE";
+      if (error instanceof GeminiExtractionError && error.retryable) throw error;
+
+      if (["GEMINI_NOT_CONFIGURED", "GEMINI_REQUEST_REJECTED", "UNSUPPORTED_SOURCE"].includes(code)) {
+        await step.run("request-transcript-fallback", async () => updateSourceImport(id, {
+          status: "source_content_required",
+          error_code: code,
+          error_message:
+            "O vídeo não pôde ser processado diretamente. Envie uma transcrição autorizada para continuar.",
+        }));
+        return { id, status: "source_content_required" };
+      }
+
+      await step.run("persist-extraction-error", async () => updateSourceImport(id, {
+        status: "failed",
+        error_code: code,
+        error_message: "Não foi possível extrair a receita. Você pode tentar novamente fornecendo uma transcrição autorizada.",
+      }));
+      return { id, status: "failed" };
     }
   },
 );
