@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateRequest, isUuid } from "@/lib/server/route-auth";
 import { getRecipeForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
+import { draftFromDbRecipe } from "@/lib/recipe/recipe-draft";
 
 export const runtime = "nodejs";
 const MODEL = "gemini-3.8-flash";
@@ -17,9 +18,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return NextResponse.json({ error: { code: "GEMINI_NOT_CONFIGURED", message: "Configure GEMINI_API_KEY no servidor." } }, { status: 503 });
 
-  const draft = await request.json().catch(() => null) as { title?: unknown; steps?: unknown } | null;
-  const title = typeof draft?.title === "string" ? draft.title.slice(0, 200) : "Receita";
-  const steps = Array.isArray(draft?.steps) ? draft.steps.slice(0, 30).map((step) => String((step as { instruction?: unknown })?.instruction ?? "").slice(0, 500)).filter(Boolean) : [];
+  const recipeDraft = draftFromDbRecipe(recipe.recipe, recipe.ingredients, recipe.steps);
+  const title = recipeDraft.title.slice(0, 200);
+  const steps = recipeDraft.steps.slice().sort((a, b) => a.position - b.position).slice(0, 30).map((step) => step.instruction.slice(0, 500)).filter(Boolean);
   if (!steps.length) return NextResponse.json({ error: { code: "RECIPE_STEPS_REQUIRED", message: "A receita precisa ter etapas para gerar o fluxograma." } }, { status: 400 });
 
   try {
