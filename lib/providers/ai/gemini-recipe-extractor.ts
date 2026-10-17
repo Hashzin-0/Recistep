@@ -122,6 +122,15 @@ async function generateStructuredRecipe(
   }
 
   if (!response.ok) {
+    if (response.status === 400) {
+      throw new GeminiExtractionError("GEMINI_REQUEST_REJECTED_400", false);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new GeminiExtractionError("GEMINI_AUTHENTICATION_FAILED", false);
+    }
+    if (response.status === 404) {
+      throw new GeminiExtractionError("GEMINI_MODEL_UNAVAILABLE", false);
+    }
     const retryable = response.status === 429 || response.status >= 500;
     throw new GeminiExtractionError(
       retryable ? "GEMINI_TEMPORARY_FAILURE" : "GEMINI_REQUEST_REJECTED",
