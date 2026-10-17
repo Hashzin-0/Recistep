@@ -106,13 +106,19 @@ export default function HomePage() {
     setIsAuthBusy(true);
     setAuthFeedback(null);
     try {
-      const { error } = await startGoogleOAuth(supabase, window.location.origin);
-      if (error) {
-        setAuthFeedback("Não foi possível entrar com Google. Verifique a configuração do provedor no Supabase.");
+      const { data, error } = await startGoogleOAuth(supabase, window.location.origin);
+      if (error || !data.url) {
+        setAuthFeedback(
+          error
+            ? "O Supabase recusou o login. Confira se o provedor Google está habilitado e se a URL de retorno está autorizada."
+            : "O Supabase não retornou a URL de autenticação. Confira a configuração do provedor Google.",
+        );
         setIsAuthBusy(false);
-      } else {
-        setAuthFeedback("Redirecionando para a autenticação do Google…");
+        return;
       }
+
+      setAuthFeedback("Abrindo a autenticação do Google…");
+      window.location.assign(data.url);
     } catch {
       setAuthFeedback("Não foi possível conectar ao serviço de autenticação.");
       setIsAuthBusy(false);
@@ -166,8 +172,13 @@ export default function HomePage() {
   async function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
-    if (!supabase || !accessToken) {
-      setFeedback({ kind: "info", message: "Entre na sua conta para iniciar uma importação." });
+    if (!supabase) {
+      setFeedback({ kind: "error", message: "O login não está disponível: configure NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY no ambiente de produção e gere um novo deploy." });
+      return;
+    }
+    if (!accessToken) {
+      setFeedback({ kind: "info", message: "Entre com Google primeiro. Depois, cole o link e toque em “Analisar link” novamente." });
+      setAuthFeedback("É necessário entrar com Google antes de iniciar uma importação.");
       return;
     }
     setIsSubmitting(true);
@@ -307,7 +318,7 @@ export default function HomePage() {
                   className="auth-google-button"
                   type="button"
                   onClick={handleGoogleSignIn}
-                  disabled={isAuthBusy || !supabase}
+                  disabled={isAuthBusy}
                 >
                   <svg aria-hidden="true" viewBox="0 0 48 48">
                     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 3.01 13.22l7.98 6.19C12.88 13.72 18.01 9.5 24 9.5Z" transform="translate(0 4)"/>

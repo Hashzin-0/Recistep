@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Starts Google OAuth through Supabase Auth and returns to the app origin.
- * The Supabase dashboard must allow this redirect URL and have Google enabled.
+ * Requests a Google OAuth URL from Supabase. The caller performs the redirect
+ * explicitly so it can handle missing URLs and surface configuration errors.
  */
 export function startGoogleOAuth(
   client: Pick<SupabaseClient, "auth">,
@@ -10,6 +10,6 @@ export function startGoogleOAuth(
 ) {
   return client.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo },
+    options: { redirectTo, skipBrowserRedirect: true },
   });
 }
