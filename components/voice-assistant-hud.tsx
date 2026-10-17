@@ -13,10 +13,7 @@ import {
   type LiveSessionState,
 } from "@/lib/voice/live-session";
 
-// HUD flutuante do assistente de voz: um orb no canto inferior direito.
-// Conectado, mostra só o orb (clique encerra, segurar silencia); desconectado,
-// mostra o orb parado com o botão de ativar. O texto fica só para leitores de
-// tela, porque a resposta principal é o áudio.
+// O orb liga/desliga a sessão; o controle separado silencia/reativa o microfone.
 
 export interface VoiceControlApi {
   sendText(text: string): boolean;
@@ -60,10 +57,8 @@ export interface VoiceAssistantHudProps {
 function orbLabel(state: LiveSessionState): string {
   if (state.status === "connecting") return "Conectando o assistente de voz. Aguarde.";
   if (state.errorMessage) return "Assistente de voz com erro. Toque para tentar de novo.";
-  if (state.isMuted) {
-    return "Assistente de voz ativo com o microfone silenciado. Toque para encerrar a conversa; segure para reativar o microfone.";
-  }
-  return "Assistente de voz ativo. Toque para encerrar a conversa; segure para silenciar o microfone.";
+  if (state.isMuted) return "Assistente de voz ativo, microfone silenciado. Toque para desligar a sessão.";
+  return "Assistente de voz ativo. Toque para desligar a sessão.";
 }
 
 function useOrbSize(): number {
@@ -169,32 +164,29 @@ export function VoiceAssistantHud({
       )}
 
       {supported ? (
-        busy ? (
+        <>
           <VoiceOrb
             status={state.status}
-            userVolume={state.userVolume}
-            agentVolume={state.agentVolume}
+            userVolume={busy ? state.userVolume : 0}
+            agentVolume={busy ? state.agentVolume : 0}
             isMuted={state.isMuted}
             interactive
             size={orbSize}
-            label={orbLabel(state)}
-            onClick={disconnect}
-            onLongPress={toggleMute}
+            label={busy ? orbLabel(state) : "Ativar assistente de voz"}
+            onClick={busy ? disconnect : connect}
           />
-        ) : (
-          <div className="voice-hud-idle">
-            <VoiceOrb
-              status={state.status}
-              userVolume={0}
-              agentVolume={0}
-              isMuted={false}
-              size={orbSize}
-            />
-            <button type="button" className="import-button" onClick={connect} aria-describedby={privacyId}>
-              Ativar assistente de voz
+          {busy && (
+            <button
+              type="button"
+              className="auth-secondary-button voice-microphone-toggle"
+              onClick={toggleMute}
+              aria-pressed={state.isMuted}
+              aria-describedby={privacyId}
+            >
+              {state.isMuted ? "Ativar microfone" : "Silenciar microfone"}
             </button>
-          </div>
-        )
+          )}
+        </>
       ) : (
         <p className="voice-hud-note" role="status">
           Este navegador não permite captura de microfone. Use uma versão recente de Chrome, Edge ou Safari.
