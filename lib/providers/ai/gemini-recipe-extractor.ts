@@ -93,11 +93,9 @@ export async function extractRecipeFromTranscript(input: {
   const url = new URL(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
   );
-  url.searchParams.set("key", apiKey);
-
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     signal: AbortSignal.timeout(25_000),
     cache: "no-store",
     body: JSON.stringify({
