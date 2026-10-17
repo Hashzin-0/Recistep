@@ -738,7 +738,7 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - `POST /api/v1/imports` com autenticação, limite de corpo, idempotência, persistência antes de confirmar e envio de evento Inngest.
 - `GET /api/v1/imports/{id}` com escopo de usuário.
 - `POST /api/v1/imports/{id}/transcript` para transcrição fornecida pelo usuário, com validação de tamanho e evento que carrega somente o ID.
-- Workflow Inngest com retries limitados para metadados públicos e extração de transcrição.
+- Workflow Inngest com retries limitados para metadados públicos, análise direta de vídeo e extração de transcrição.
 - Conector YouTube oEmbed para metadados públicos e análise multimodal de URL pública diretamente via Gemini, sem download de vídeo pela aplicação.
 - Adaptador Gemini server-only com saída JSON estruturada, validação Zod posterior, evidências literais e preservação de valores desconhecidos como `null`.
 - A transcrição é removida do banco após extração bem-sucedida ou erro terminal.
