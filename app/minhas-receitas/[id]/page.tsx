@@ -9,21 +9,7 @@ import { KitchenMode } from "@/components/kitchen-mode";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
-
-function ingredientIcon(name: string): string {
-  const value = name.toLocaleLowerCase("pt-BR");
-  if (/leite|creme|iogurte|manteiga|queijo/.test(value)) return "🥛";
-  if (/ovo/.test(value)) return "🥚";
-  if (/açúcar|mel|adoçante/.test(value)) return "🍯";
-  if (/farinha|trigo|amido|fermento/.test(value)) return "🌾";
-  if (/carne|frango|peixe|bacon/.test(value)) return "🥩";
-  if (/tomate|cenoura|cebola|alho|batata|legume|verdura/.test(value)) return "🥕";
-  if (/limão|laranja|morango|banana|maçã|fruta/.test(value)) return "🍋";
-  if (/arroz|feijão|lentilha|grão/.test(value)) return "🥣";
-  if (/óleo|azeite/.test(value)) return "🫒";
-  if (/chocolate|cacau/.test(value)) return "🍫";
-  return "🧂";
-}
+import { IngredientIllustration } from "@/components/ingredient-illustration";
 
 function quantityLabel(quantity: number | null, unit: string | null, text: string | null | undefined): string {
   if (text) return text;
@@ -180,7 +166,7 @@ export default function ReceitaDetalhePage() {
                       <h3>{section}</h3>
                       <ul className="recipe-detail-list">
                         {ingredients.map((ingredient, index) => (
-                          <li key={index}><span className="ingredient-icon" aria-hidden="true">{ingredientIcon(ingredient.name)}</span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
+                          <li key={index}><span className="ingredient-icon"><IngredientIllustration name={ingredient.name} /></span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
                         ))}
                       </ul>
                     </section>
