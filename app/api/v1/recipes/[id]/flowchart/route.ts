@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticateRequest, isUuid } from "@/lib/server/route-auth";
 import { getRecipeForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
 import { draftFromDbRecipe } from "@/lib/recipe/recipe-draft";
+import { checkUserRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 const MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
@@ -11,6 +12,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
   if (!isUuid(id)) return NextResponse.json({ error: { code: "INVALID_RECIPE_ID" } }, { status: 400 });
+  const limit = await checkUserRateLimit({ userId: auth.user.id, route: "recipe-flowchart", limit: 3, windowSeconds: 3600 });
+  if (!limit.allowed) return NextResponse.json({ error: { code: "RATE_LIMITED", message: "Limite de geração atingido. Tente novamente mais tarde." } }, { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } });
   const recipe = await getRecipeForUser(id, auth.user.id).catch(() => null);
   if (!recipe) return NextResponse.json({ error: { code: "RECIPE_NOT_FOUND" } }, { status: 404 });
   const config = getSupabaseConfig();
