@@ -182,3 +182,26 @@ export async function getUserSourceImport(
   );
   return records[0] ?? null;
 }
+
+
+export async function confirmRecipeFromImport(input: {
+  import_id: string;
+  user_id: string;
+  recipe: unknown;
+}): Promise<{ recipe_id: string; already_confirmed: boolean }> {
+  const result = await supabaseRequest<Array<{ recipe_id: string; already_confirmed: boolean }>>(
+    "rpc/confirm_recipe_from_import",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        p_import_id: input.import_id,
+        p_user_id: input.user_id,
+        p_recipe: input.recipe,
+      }),
+    },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.recipe_id !== "string") throw new Error("RECIPE_CONFIRMATION_EMPTY");
+  return row;
+}
