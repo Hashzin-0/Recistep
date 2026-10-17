@@ -7,7 +7,7 @@ export function hashSourceUrl(sourceUrl: string): string {
   url.hostname = url.hostname.toLowerCase();
   url.protocol = url.protocol.toLowerCase();
   if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) url.port = "";
-  if (url.hostname === "www.youtube.com") {
+  if (["youtube.com", "www.youtube.com", "m.youtube.com"].includes(url.hostname)) {
     const id = url.searchParams.get("v");
     if (id) return sha256("youtube:video:" + id.trim());
   }
