@@ -763,3 +763,22 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 ### Controles de throughput — 2026-10-16
 - Os workers Inngest agora limitam a concorrência e aplicam throttling durável por usuário (2 inícios/minuto com burst 1), enfileirando excesso em vez de descartar o trabalho.
 - Isso protege contra rajadas e limita a pressão simultânea sobre Gemini. Cotas rígidas por dia/conta e proteção anti-abuso na camada HTTP ainda precisam ser adicionadas antes de uma implantação pública.
+
+
+## Registro de execução — 2026-10-17 — Etapa 5: revisão e confirmação de receita
+
+### Implementação nesta etapa (em validação)
+- A tela de revisão permite editar título, descrição, rendimento, ingredientes, quantidades, unidades, observações, instruções e durações conhecidas.
+- `PATCH /api/v1/imports/{id}/review` autentica o usuário, verifica a titularidade da importação, exige estado `review_required` e valida a receita completa pelo schema Zod estrito antes de persistir o rascunho revisado.
+- `POST /api/v1/imports/{id}/confirm` exige ação explícita do usuário, autenticação, titularidade e schema válido. A confirmação persiste receita, ingredientes e etapas em uma única função PostgreSQL transacional, marcando a importação como `completed` apenas depois dos inserts.
+- A função SQL é executável somente por `service_role`; o endpoint server-side valida o token do usuário e fornece seu ID autenticado. A chave de serviço não é enviada ao navegador.
+- A operação de confirmação é idempotente por importação e retorna o ID da receita já criada em chamadas repetidas.
+- Quantidades/tempos ausentes continuam nulos; a interface não inventa valores. O formulário e os estados de revisão receberam estilos responsivos compatíveis com o tema escuro.
+
+### Verificação pendente
+- A migration `20261017000100_recipe_review_confirmation.sql` foi versionada, mas sua aplicação no Supabase e a validação da função RPC ainda precisam ser confirmadas.
+- Executar testes, typecheck e build de produção no head da PR antes de integrar.
+- Validar um caso real de revisão e confirmação com uma conta autenticada, verificando os registros relacionados e a idempotência; não usar dados simulados como prova de integração.
+
+### Critério de conclusão desta etapa
+Não marcar como concluída até que a CI esteja verde, a migration esteja aplicada ao projeto Supabase Recistep e uma confirmação real seja verificada, sem expor dados pessoais ou segredos nos logs.
