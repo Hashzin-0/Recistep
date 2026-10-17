@@ -41,6 +41,28 @@ describe("fetchYouTubePublicMetadata", () => {
     expect(requestedUrl.pathname).toBe("/oembed");
   });
 
+  it("requests public metadata for the exact user-provided video URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: "Vídeo de teste Recistep",
+      author_name: "Canal de teste",
+      provider_name: "YouTube",
+      thumbnail_url: "https://i.ytimg.com/vi/olw3gMc4YlU/hqdefault.jpg",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchYouTubePublicMetadata("https://youtu.be/olw3gMc4YlU?is=JlA_W00Jux4R6fQO"),
+    ).resolves.toMatchObject({
+      title: "Vídeo de teste Recistep",
+      provider_name: "YouTube",
+    });
+
+    const endpoint = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(endpoint.origin).toBe("https://www.youtube.com");
+    expect(endpoint.pathname).toBe("/oembed");
+    expect(endpoint.searchParams.get("url")).toBe("https://youtu.be/olw3gMc4YlU?is=JlA_W00Jux4R6fQO");
+  });
+
   it("rejects thumbnails served from untrusted hosts", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       title: "Receita",
