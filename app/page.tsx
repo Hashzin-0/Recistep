@@ -539,9 +539,9 @@ export default function HomePage() {
                     {reviewDraft.steps.slice().sort((a, b) => a.position - b.position).map((step, index) => (
                       <div className="review-item" key={step.position}>
                         <label htmlFor={`step-instruction-${step.position}`}>Etapa {index + 1}</label>
-                        <textarea id={`step-instruction-${step.position}`} value={step.instruction} maxLength={4000} rows={3} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, instruction: event.target.value } : item) }} required />
+                        <textarea id={`step-instruction-${step.position}`} value={step.instruction} maxLength={4000} rows={3} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, instruction: event.target.value } : item) })} required />
                         <label htmlFor={`step-duration-${step.position}`}>Duração em segundos (se conhecida)</label>
-                        <input id={`step-duration-${step.position}`} type="number" min="0" max="86400" step="1" value={step.duration_seconds ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, duration_seconds: event.target.value === "" ? null : Number(event.target.value) } : item) }} />
+                        <input id={`step-duration-${step.position}`} type="number" min="0" max="86400" step="1" value={step.duration_seconds ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, duration_seconds: event.target.value === "" ? null : Number(event.target.value) } : item) })} />
                       </div>
                     ))}
                   </div>
