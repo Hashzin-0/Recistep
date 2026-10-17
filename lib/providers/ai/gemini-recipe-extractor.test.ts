@@ -3,6 +3,7 @@ vi.mock("server-only", () => ({}));
 
 import {
   extractRecipeFromTranscript,
+  extractRecipeFromYouTubeUrl,
   GeminiExtractionError,
 } from "./gemini-recipe-extractor";
 
@@ -65,6 +66,39 @@ describe("extractRecipeFromTranscript", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].headers["x-goog-api-key"]).toBe("test-key");
     expect(String(fetchMock.mock.calls[0][0])).not.toContain("test-key");
+  });
+
+  it("passes a public YouTube URL to Gemini as video input", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{
+        finishReason: "STOP",
+        content: { parts: [{ text: JSON.stringify(validRecipe) }] },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await extractRecipeFromYouTubeUrl({
+      sourceUrl: "https://www.youtube.com/watch?v=public123",
+      locale: "pt-BR",
+      sourceTitle: "Receita pública",
+    });
+
+    expect(result.title).toBe("Massa simples");
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.contents[0].parts[1].file_data.file_uri)
+      .toBe("https://www.youtube.com/watch?v=public123");
+  });
+
+  it("rejects non-YouTube URLs before sending them to Gemini", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(extractRecipeFromYouTubeUrl({
+      sourceUrl: "https://attacker.example/video",
+    })).rejects.toThrow("UNSUPPORTED_SOURCE");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects malformed model output rather than returning an unvalidated recipe", async () => {
