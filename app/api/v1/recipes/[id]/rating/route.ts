@@ -20,7 +20,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (!response.ok) throw new Error("RATINGS_READ_FAILED");
     const rows = await response.json() as { rating: number; user_id: string }[];
     const average = rows.length ? rows.reduce((sum, row) => sum + row.rating, 0) / rows.length : null;
-    return NextResponse.json({ average, count: rows.length, userRating: rows.find((row) => row.user_id === auth.user.id)?.rating ?? null });
+    return NextResponse.json({ data: { average, count: rows.length, userRating: rows.find((row) => row.user_id === auth.user.id)?.rating ?? null } });
   } catch {
     return NextResponse.json({ error: { code: "RATINGS_UNAVAILABLE", message: "Não foi possível carregar as avaliações." } }, { status: 503 });
   }
