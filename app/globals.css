@@ -210,3 +210,59 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .auth-google-button:disabled { cursor: wait; opacity: .65; }
 .auth-google-button svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .auth-google-hint { margin: 0; color: #8a8e83; font-size: 9px; line-height: 1.5; }
+
+
+/* Global dark theme: every section, form control and state uses the same palette. */
+:root {
+  color-scheme: dark;
+  --paper: #0b0e0b;
+  --ink: #edf1e7;
+  --muted: #a0a99a;
+  --green: #526b42;
+  --green-dark: #405434;
+  --lime: #d5f06d;
+  --line: #293127;
+  --card: #141914;
+}
+html, body { min-height: 100%; background: var(--paper); color: var(--ink); }
+body { background: radial-gradient(ellipse at 15% 0%, #1b2619 0%, transparent 42%), var(--paper); }
+.topbar, .workflow, .footer { border-color: var(--line); }
+.brand-light, .topbar-note, .hero-description, .hero-points span,
+.section-heading > p, .workflow-card p, .footer, .field-hint,
+.privacy-note, .auth-google-hint { color: #a0aa9a; }
+.eyebrow { color: #c0d39b; }
+.hero h1 em { color: #c3df8a; }
+.check { background: #293622; color: #d5f06d; }
+.import-card { background: #141914; border-color: #30392d; box-shadow: 0 20px 70px #00000040; }
+.card-kicker, .auth-label { color: #b8cf8d; }
+.import-card label, .auth-form label, .transcript-form label { color: #d7dfcf; }
+.url-field, .auth-panel, .import-status, .workflow-card {
+  background: #101510; border-color: #30392d; color: var(--ink);
+}
+.url-field input, .auth-form input, .transcript-form textarea {
+  background: #0c100c; border-color: #343e30; color: var(--ink);
+}
+.url-field input::placeholder, .auth-form input::placeholder,
+.transcript-form textarea::placeholder { color: #747e70; }
+.auth-google-button { background: #202720; border-color: #3a4636; color: #f1f4ec; }
+.auth-google-button:hover:not(:disabled) { background: #293329; border-color: #596b4e; }
+.auth-secondary-button { background: #202720; border-color: #3a4636; color: #e4eadc; }
+.auth-secondary-button:hover:not(:disabled) { background: #2b352a; }
+.auth-feedback { color: #c4d5aa; }
+.source-chip { background: #1a2119; border-color: #30392d; color: #cbd4c3; }
+.supported-divider { color: #879280; }
+.supported-divider span { background: #30392d; }
+.tiktok { color: #f0f2ed; }
+.workflow-card { background: #121712; }
+.icon-ingredients { color: #d1e7ad; background: #293622; }
+.icon-time { color: #e8d3a0; background: #352e1c; }
+.icon-cook { color: #edbda9; background: #38271f; }
+.feedback-error { background: #3a211f; color: #ffc5bb; }
+.feedback-error > span { background: #66342e; }
+.feedback-info { background: #252f20; color: #d9e9c4; }
+.feedback-info > span { background: #39482e; }
+.recipe-draft, .source-metadata-title { color: #d1dac8; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline-color: #d5f06d;
+}
+::selection { background: #526b42; color: #fff; }
