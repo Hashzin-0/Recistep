@@ -68,7 +68,7 @@ function publicVideoUrl(html: string): string | null {
 }
 
 function publicCaptionFromHtml(html: string): string | null {
-  const metaTags = html.match(/<meta\\b[^>]*>/gi) ?? [];
+  const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
   for (const tag of metaTags) {
     const key = (attribute(tag, "property") ?? attribute(tag, "name") ?? "").toLowerCase();
     if (!["og:description", "description", "twitter:description"].includes(key)) continue;
@@ -77,7 +77,7 @@ function publicCaptionFromHtml(html: string): string | null {
   }
 
   // Older public Instagram pages expose the same caption in shared_data JSON.
-  const sharedData = html.match(/(?:window\\.)?_sharedData\\s*=\\s*(\\{[\\s\\S]*?\\})\\s*;?/);
+  const sharedData = html.match(/(?:window\.)?_sharedData\s*=\s*(\{[\s\S]*?\})\s*;?/);
   if (sharedData?.[1]) {
     try {
       const parsed: unknown = JSON.parse(sharedData[1]);
