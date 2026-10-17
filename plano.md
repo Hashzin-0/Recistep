@@ -775,10 +775,14 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - A operação de confirmação é idempotente por importação e retorna o ID da receita já criada em chamadas repetidas.
 - Quantidades/tempos ausentes continuam nulos; a interface não inventa valores. O formulário e os estados de revisão receberam estilos responsivos compatíveis com o tema escuro.
 
-### Verificação pendente
-- A migration `20261017114621_recipe_review_confirmation.sql` foi versionada, mas sua aplicação no Supabase e a validação da função RPC ainda precisam ser confirmadas.
-- Executar testes, typecheck e build de produção no head da PR antes de integrar.
-- Validar um caso real de revisão e confirmação com uma conta autenticada, verificando os registros relacionados e a idempotência; não usar dados simulados como prova de integração.
+### Verificação observada em 2026-10-17
+- CI no commit de implementação: 29 testes unitários passaram; TypeScript e build de produção passaram. A primeira execução identificou dois erros de sintaxe nos handlers de edição; eles foram corrigidos e a execução seguinte ficou verde.
+- Preview Vercel para o código de implementação ficou em estado `READY`; após squash-and-merge da PR #5, a implantação de produção para o commit `9fee2073586e70a817009bfbf8817ccd0322596c` também ficou `READY`.
+- A migration `20261017114621_recipe_review_confirmation.sql` foi aplicada ao projeto Supabase Recistep. A migration `20261017114730_source_import_recipe_idx.sql` também foi aplicada para indexar a referência da receita confirmada. A existência da função RPC e do índice foi verificada por consulta ao banco.
+- Squash-and-merge da PR #5: https://github.com/Hashzin-0/Recistep/pull/5. PR #6 alinhou o nome local da migration de índice com a versão registrada no Supabase e também foi squash-and-merged.
+- O advisor de performance não reporta mais a FK `source_imports.recipe_id` sem índice; os demais índices marcados como não utilizados são esperados em tabelas com pouco tráfego.
 
-### Critério de conclusão desta etapa
-Não marcar como concluída até que a CI esteja verde, a migration esteja aplicada ao projeto Supabase Recistep e uma confirmação real seja verificada, sem expor dados pessoais ou segredos nos logs.
+### Validação operacional ainda pendente
+- Não foi executada uma confirmação com uma sessão real de usuário nesta etapa. Não alterar ou confirmar importações de usuários existentes como teste sem autorização explícita.
+- Após o deploy, confirmar manualmente uma receita real pelo botão da interface e verificar que o estado passa a `completed`, o registro em `recipes` tem `is_confirmed=true`, e ingredientes/etapas aparecem associados à receita.
+- A migration e a RPC estão no banco; o teste de integração com dados reais permanece pendente. Portanto, a etapa está implementada e validada por CI/build, mas a demonstração completa do vertical slice ainda não foi certificada.
