@@ -9,7 +9,7 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 - Schema de extração de receita com validação estrita e utilitário determinístico de escala de porções.
 - Migração Supabase com importações, receitas, ingredientes, etapas e políticas RLS por proprietário.
 - Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
-- Workflow durável Inngest para importações e extração de transcrição.
+- Workflow durável Inngest para análise de vídeos públicos do YouTube e extração de transcrições.
 - Conector YouTube oEmbed para metadados públicos e análise de vídeos públicos diretamente pela API Gemini. O Recistep não baixa o vídeo por conta própria; o recurso de URL do YouTube na API Gemini está em prévia e só aceita vídeos públicos.
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
 - Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
