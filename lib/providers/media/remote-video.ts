@@ -4,7 +4,6 @@ import {
   parseAllowedHttpsUrl,
   type HostPolicy,
 } from "@/lib/providers/sources/safe-fetch";
-import type { ResolvedContent } from "@/lib/providers/sources/source-connector";
 
 /** The Gemini external-URL input accepts at most 15 MB per file. */
 export const EXTERNAL_MEDIA_MAX_BYTES = 15 * 1024 * 1024;
@@ -84,31 +83,4 @@ export async function probeExternalMedia(input: {
   }
 
   throw new Error("SOURCE_MEDIA_URL_INVALID");
-}
-
-/**
- * Turns a validated platform CDN URL into connector content. Any failure
- * (403 gating, missing Referer, oversize file) degrades to the authorized
- * transcript instead of retrying, because the provider cannot fetch the file.
- */
-export async function resolveExternalMediaContent(input: {
-  mediaUrl: string;
-  isAllowedHost: HostPolicy;
-  referer: string;
-  platformLabel: string;
-}): Promise<ResolvedContent> {
-  try {
-    await probeExternalMedia({
-      mediaUrl: input.mediaUrl,
-      isAllowedHost: input.isAllowedHost,
-      referer: input.referer,
-    });
-    return { kind: "external_media", mediaUrl: input.mediaUrl, mimeType: "video/mp4" };
-  } catch (error) {
-    return {
-      kind: "transcript_required",
-      code: error instanceof Error ? error.message : "SOURCE_MEDIA_UNAVAILABLE",
-      reason: `O vídeo do ${input.platformLabel} não pôde ser disponibilizado para análise automática (link indisponível, privado ou acima do limite permitido). Envie uma transcrição autorizada para continuar.`,
-    };
-  }
 }

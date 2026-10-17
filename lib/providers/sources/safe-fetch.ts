@@ -56,6 +56,62 @@ async function readBoundedBody(response: Response, maxBytes: number): Promise<st
   return new TextDecoder("utf-8").decode(merged);
 }
 
+/**
+ * Follows allowlisted redirects and returns the final URL without reading the
+ * response body. Used to canonicalize share links while keeping the SSRF
+ * allowlist and redirect validation identical to the document fetcher.
+ */
+export async function resolveAllowlistedLocation(input: {
+  url: string;
+  isAllowedHost: HostPolicy;
+  maxRedirects?: number;
+  timeoutMs?: number;
+}): Promise<string> {
+  const maxRedirects = input.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  let current = input.url;
+
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    const url = parseAllowedHttpsUrl(current, input.isAllowedHost);
+    if (!url) throw new Error("SOURCE_LOCATION_NOT_ALLOWED");
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        redirect: "manual",
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+        headers: {
+          Accept: "text/html,*/*;q=0.8",
+          "User-Agent": BROWSER_USER_AGENT,
+        },
+      });
+    } catch {
+      throw new Error("SOURCE_PROVIDER_TEMPORARY_FAILURE");
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => undefined);
+      if (!location) throw new Error("SOURCE_REDIRECT_INVALID");
+      current = new URL(location, url).toString();
+      continue;
+    }
+
+    await response.body?.cancel().catch(() => undefined);
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      throw new Error("SOURCE_METADATA_UNAVAILABLE");
+    }
+    if (!response.ok) throw new Error("SOURCE_PROVIDER_TEMPORARY_FAILURE");
+
+    return url.toString();
+  }
+
+  throw new Error("SOURCE_REDIRECT_LIMIT_EXCEEDED");
+}
+
 export async function fetchAllowlistedDocument(input: {
   url: string;
   isAllowedHost: HostPolicy;

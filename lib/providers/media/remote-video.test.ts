@@ -4,7 +4,6 @@ vi.mock("server-only", () => ({}));
 import {
   EXTERNAL_MEDIA_MAX_BYTES,
   probeExternalMedia,
-  resolveExternalMediaContent,
 } from "./remote-video";
 
 afterEach(() => {
@@ -99,41 +98,5 @@ describe("probeExternalMedia", () => {
     await expect(
       probeExternalMedia({ mediaUrl: CDN_URL, isAllowedHost, referer: "https://www.tiktok.com/" }),
     ).resolves.toEqual({ contentLength: null });
-  });
-});
-
-describe("resolveExternalMediaContent", () => {
-  it("returns external media content when the provider can fetch the file", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
-      status: 206,
-      headers: { "Content-Range": "bytes 0-0/1000" },
-    })));
-
-    await expect(
-      resolveExternalMediaContent({
-        mediaUrl: CDN_URL,
-        isAllowedHost,
-        referer: "https://www.tiktok.com/",
-        platformLabel: "TikTok",
-      }),
-    ).resolves.toEqual({ kind: "external_media", mediaUrl: CDN_URL, mimeType: "video/mp4" });
-  });
-
-  it("degrades to an authorized transcript instead of failing the import", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("no", { status: 403 })));
-
-    const content = await resolveExternalMediaContent({
-      mediaUrl: CDN_URL,
-      isAllowedHost,
-      referer: "https://www.tiktok.com/",
-      platformLabel: "TikTok",
-    });
-
-    expect(content.kind).toBe("transcript_required");
-    if (content.kind === "transcript_required") {
-      expect(content.code).toBe("SOURCE_MEDIA_UNAVAILABLE");
-      expect(content.reason).toContain("TikTok");
-      expect(content.reason).toContain("transcrição");
-    }
   });
 });

@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/components/auth-provider";
+import { AppHeader } from "@/components/app-header";
 
 export const metadata: Metadata = {
   title: "Recistep — cozinhe no seu ritmo",
@@ -20,7 +22,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          <AppHeader />
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   );
 }

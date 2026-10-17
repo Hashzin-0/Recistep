@@ -2,7 +2,8 @@ import "server-only";
 import type { ResolvedSource, SourceConnector } from "@/lib/providers/sources/source-connector";
 import { fetchAllowlistedDocument, parseAllowedHttpsUrl } from "@/lib/providers/sources/safe-fetch";
 import { isPlatformMediaHost, isPlatformPageHost } from "@/lib/providers/sources/platform-hosts";
-import { resolveExternalMediaContent } from "@/lib/providers/media/remote-video";
+import { MIN_PUBLIC_TEXT_LENGTH } from "@/lib/providers/sources/source-connector";
+import { probeExternalMedia } from "@/lib/providers/media/remote-video";
 
 const REHYDRATION_SCRIPT =
   /<script[^>]*\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i;
@@ -85,6 +86,46 @@ function pickMediaUrl(video: unknown): string | null {
   );
 }
 
+/**
+ * Collects the public WebVTT caption track URLs exposed in the rehydration
+ * payload. These are the platform's own subtitle renditions and are served
+ * without a session cookie, unlike the video CDN.
+ */
+function subtitleUrls(video: unknown): string[] {
+  if (!video || typeof video !== "object") return [];
+  const record = video as Record<string, unknown>;
+  const urls: string[] = [];
+
+  const push = (value: unknown) => {
+    const url = firstNonEmptyString(value);
+    if (url) urls.push(url);
+  };
+
+  if (Array.isArray(record.subtitleInfos)) {
+    for (const entry of record.subtitleInfos) {
+      if (entry && typeof entry === "object") {
+        const info = entry as Record<string, unknown>;
+        push(info.Url ?? info.url);
+      }
+    }
+  }
+
+  const claInfo = record.claInfo;
+  if (claInfo && typeof claInfo === "object") {
+    const captionInfos = (claInfo as Record<string, unknown>).captionInfos;
+    if (Array.isArray(captionInfos)) {
+      for (const entry of captionInfos) {
+        if (entry && typeof entry === "object") {
+          const info = entry as Record<string, unknown>;
+          push(info.url ?? info.Url);
+        }
+      }
+    }
+  }
+
+  return urls;
+}
+
 function parseRehydrationBody(html: string): Record<string, unknown> | null {
   const match = html.match(REHYDRATION_SCRIPT);
   if (!match?.[1]) return null;
@@ -137,26 +178,49 @@ export const tiktokConnector: SourceConnector = {
     };
 
     const mediaUrl = pickMediaUrl(video);
-    if (!mediaUrl) {
-      return {
-        metadata,
-        content: {
-          kind: "transcript_required",
-          code: "SOURCE_MEDIA_NOT_AVAILABLE",
-          reason:
-            "Este post do TikTok não é um vídeo (foto ou carrossel) ou não expôs uma URL de mídia pública. Envie uma transcrição autorizada para continuar.",
-        },
-      };
+
+    // The CDN commonly rejects server requests without a session cookie, so the
+    // video URL is only a best-effort candidate. The public caption track is the
+    // reliable fallback because it is served without cookies.
+    let mediaFailureCode: string | null = null;
+    if (mediaUrl) {
+      try {
+        await probeExternalMedia({
+          mediaUrl,
+          isAllowedHost: MEDIA_HOST,
+          referer: "https://www.tiktok.com/",
+        });
+        return {
+          metadata,
+          content: { kind: "external_media", mediaUrl, mimeType: "video/mp4" },
+        };
+      } catch (error) {
+        mediaFailureCode = error instanceof Error ? error.message : "SOURCE_MEDIA_UNAVAILABLE";
+      }
+    }
+
+    for (const url of subtitleUrls(video)) {
+      const subtitleUrl = parseAllowedHttpsUrl(url, MEDIA_HOST);
+      if (subtitleUrl) {
+        return {
+          metadata,
+          content: { kind: "external_subtitles", url: subtitleUrl.toString(), mimeType: "text/vtt" },
+        };
+      }
+    }
+
+    if (caption.length >= MIN_PUBLIC_TEXT_LENGTH) {
+      return { metadata, content: { kind: "public_text", text: caption } };
     }
 
     return {
       metadata,
-      content: await resolveExternalMediaContent({
-        mediaUrl,
-        isAllowedHost: MEDIA_HOST,
-        referer: "https://www.tiktok.com/",
-        platformLabel: "TikTok",
-      }),
+      content: {
+        kind: "transcript_required",
+        code: mediaFailureCode ?? "SOURCE_MEDIA_NOT_AVAILABLE",
+        reason:
+          "Este post do TikTok não expôs vídeo nem legendas públicas. Envie uma transcrição autorizada para continuar.",
+      },
     };
   },
 };

@@ -1,39 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
-import { instagramConnector, shortcodeToMediaId } from "./instagram";
+import { instagramConnector } from "./instagram";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 const REEL_PATH = "https://www.instagram.com/reel/BAAB/";
-const CDN_VIDEO = "https://scontent.cdninstagram.com/v/reel-video.mp4";
 const CDN_COVER = "https://scontent.cdninstagram.com/v/reel-cover.jpg";
-
-function graphqlItem(overrides: Record<string, unknown> = {}): unknown {
-  return {
-    video_versions: [{ url: CDN_VIDEO, width: 1080, height: 1920 }],
-    caption: { text: "Bolo de cenoura em 3 passos" },
-    user: { username: "ana.receitas", full_name: "Ana Receitas" },
-    image_versions2: { candidates: [{ url: CDN_COVER }] },
-    ...overrides,
-  };
-}
-
-function graphqlResponse(items: unknown[], status = "ok"): Response {
-  return new Response(JSON.stringify({ status, items }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function openGraphPage(tags: string[]): Response {
-  return new Response(`<!DOCTYPE html><html><head>${tags.join("\n")}</head><body></body></html>`, {
-    status: 200,
-    headers: { "Content-Type": "text/html" },
-  });
-}
+const LONG_CAPTION =
+  "Bolo de cenoura da vovó: 3 cenouras médias, 4 ovos, 1 xícara de óleo, 2 xícaras de açúcar. " +
+  "Bata tudo no liquidificador, acrescente a farinha e asse por 40 minutos.";
 
 function stubFetch(handlers: Array<{ match: string; respond: () => Response | Promise<Response> }>) {
   const fetchMock = vi.fn().mockImplementation(async (input: unknown) => {
@@ -47,112 +25,109 @@ function stubFetch(handlers: Array<{ match: string; respond: () => Response | Pr
   return fetchMock;
 }
 
-describe("shortcodeToMediaId", () => {
-  it("decodes a shortcode with the base64url alphabet", () => {
-    expect(shortcodeToMediaId("BAAB")).toBe("262145");
-  });
-
-  it("rejects shortcodes containing characters outside the alphabet", () => {
-    expect(shortcodeToMediaId("A*B$")).toBeNull();
-    expect(shortcodeToMediaId("AB")).toBeNull();
-  });
-
-  it("maps different shortcodes to different ids", () => {
-    expect(shortcodeToMediaId("BAAB")).not.toBe(shortcodeToMediaId("BAAC"));
-  });
-});
+function oembedResponse(overrides: Record<string, unknown> = {}): Response {
+  return new Response(JSON.stringify({
+    version: "1.0",
+    type: "rich",
+    title: LONG_CAPTION,
+    author_name: "ana.receitas",
+    thumbnail_url: CDN_COVER,
+    provider_name: "Instagram",
+    ...overrides,
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
 
 describe("instagramConnector", () => {
-  it("resolves a reel through the public GraphQL endpoint and the CDN probe", async () => {
+  it("uses the public oEmbed caption as the extraction text without any media URL", async () => {
     const fetchMock = stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([graphqlItem()]) },
-      { match: "cdninstagram.com", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/2097152" } }) },
+      { match: "oembed", respond: () => oembedResponse() },
     ]);
 
     await expect(instagramConnector.resolve(REEL_PATH)).resolves.toEqual({
       metadata: {
-        title: "Bolo de cenoura em 3 passos",
-        author_name: "Ana Receitas",
+        title: LONG_CAPTION.slice(0, 200),
+        author_name: "ana.receitas",
         provider_name: "Instagram",
         thumbnail_url: CDN_COVER,
       },
-      content: { kind: "external_media", mediaUrl: CDN_VIDEO, mimeType: "video/mp4" },
+      content: { kind: "public_text", text: LONG_CAPTION },
     });
 
-    const graphqlCall = fetchMock.mock.calls.find(([request]) => String(request).includes("i.instagram.com"));
-    expect(String(graphqlCall?.[0])).toContain("/api/v1/media/262145/info/");
-    expect((graphqlCall?.[1] as RequestInit).headers).toMatchObject({ "X-IG-App-ID": "936619743392459" });
+    const oembedCall = fetchMock.mock.calls[0];
+    expect(String(oembedCall?.[0])).toContain("/api/v1/oembed/?url=");
+    expect(String(oembedCall?.[0])).toContain(encodeURIComponent(REEL_PATH));
+    // Instagram gates the page and GraphQL behind login, so no other endpoint is used.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the page Open Graph video when the GraphQL endpoint refuses", async () => {
+  it("reports a link that cannot be analyzed when the caption carries no recipe", async () => {
     stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([], "fail") },
-      { match: "/reel/BAAB/", respond: () => openGraphPage([
-        `<meta property="og:title" content="Bolo rápido" />`,
-        `<meta property="og:video" content="${CDN_VIDEO}?oe=1&amp;oh=2" />`,
-        `<meta property="og:image" content="${CDN_COVER}" />`,
-      ]) },
-      { match: "cdninstagram.com", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/2097152" } }) },
+      { match: "oembed", respond: () => oembedResponse({ title: "novo post 🍰", thumbnail_url: null }) },
     ]);
 
     const resolved = await instagramConnector.resolve(REEL_PATH);
-    expect(resolved.content).toMatchObject({ kind: "external_media", mediaUrl: `${CDN_VIDEO}?oe=1&oh=2` });
-    expect(resolved.metadata.title).toBe("Bolo rápido");
-    expect(resolved.metadata.thumbnail_url).toBe(CDN_COVER);
+    expect(resolved.content).toMatchObject({ kind: "unsupported_content", code: "SOURCE_NOT_ANALYZABLE" });
+    if (resolved.content.kind === "unsupported_content") {
+      expect(resolved.content.reason).toContain("Não foi possível analisar");
+    }
+    expect(resolved.metadata.title).toBe("novo post 🍰");
+    expect(resolved.metadata.thumbnail_url).toBeNull();
   });
 
-  it("resolves share links by following allowlisted redirects", async () => {
+  it("falls back to the author when the caption is empty", async () => {
     stubFetch([
-      { match: "instagram.com/share/abc", respond: () => new Response(null, {
-        status: 302,
-        headers: { Location: REEL_PATH },
-      }) },
-      { match: "/reel/BAAB/", respond: () => openGraphPage([
-        `<meta property="og:title" content="Compartilhado" />`,
-        `<meta property="og:video" content="${CDN_VIDEO}" />`,
-      ]) },
-      { match: "i.instagram.com", respond: () => graphqlResponse([graphqlItem()]) },
-      { match: "cdninstagram.com", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/1000" } }) },
+      { match: "oembed", respond: () => oembedResponse({ title: "", thumbnail_url: null }) },
+    ]);
+
+    const resolved = await instagramConnector.resolve(REEL_PATH);
+    expect(resolved.metadata.title).toBe("Instagram de ana.receitas");
+    expect(resolved.content.kind).toBe("unsupported_content");
+  });
+
+  it("resolves share links through allowlisted redirects before calling oEmbed", async () => {
+    const fetchMock = stubFetch([
+      { match: "instagram.com/share/abc", respond: () => new Response(null, { status: 302, headers: { Location: REEL_PATH } }) },
+      { match: "/reel/BAAB/", respond: () => new Response("<html></html>", { status: 200 }) },
+      { match: "oembed", respond: () => oembedResponse() },
     ]);
 
     const resolved = await instagramConnector.resolve("https://www.instagram.com/share/abc/");
-    expect(resolved.content).toMatchObject({ kind: "external_media", mediaUrl: CDN_VIDEO });
+    expect(resolved.content).toMatchObject({ kind: "public_text" });
+    expect(fetchMock.mock.calls.map(([request]) => String(request)).some((url) => url.includes("oembed"))).toBe(true);
   });
 
-  it("reports photo posts as requiring a transcript instead of a fake success", async () => {
+  it("drops thumbnails served from untrusted hosts without failing the import", async () => {
     stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([graphqlItem({ video_versions: undefined, caption: null })]) },
-      { match: "/reel/BAAB/", respond: () => openGraphPage([
-        `<meta property="og:title" content="Foto de bolo" />`,
-        `<meta property="og:image" content="${CDN_COVER}" />`,
-      ]) },
+      { match: "oembed", respond: () => oembedResponse({ thumbnail_url: "https://attacker.example/cover.jpg" }) },
     ]);
 
     const resolved = await instagramConnector.resolve(REEL_PATH);
-    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_NOT_AVAILABLE" });
-    expect(resolved.metadata.title).toBe("Foto de bolo");
+    expect(resolved.metadata.thumbnail_url).toBeNull();
+    expect(resolved.content.kind).toBe("public_text");
   });
 
-  it("never hands an unowned host to the provider", async () => {
+  it("treats a rejected post as unavailable metadata", async () => {
     stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([graphqlItem({
-        video_versions: [{ url: "https://attacker.example/reel.mp4", width: 720, height: 1280 }],
-      })]) },
-      { match: "/reel/BAAB/", respond: () => openGraphPage([]) },
+      { match: "oembed", respond: () => new Response("not found", { status: 404 }) },
     ]);
 
-    const resolved = await instagramConnector.resolve(REEL_PATH);
-    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_URL_INVALID" });
+    await expect(instagramConnector.resolve(REEL_PATH)).rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
   });
 
-  it("does not expose a video larger than the provider limit", async () => {
+  it("reports a rate limit as a transient provider error instead of a permanent failure", async () => {
     stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([graphqlItem()]) },
-      { match: "cdninstagram.com", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/42949672" } }) },
+      { match: "oembed", respond: () => new Response("slow down", { status: 429 }) },
     ]);
 
-    const resolved = await instagramConnector.resolve(REEL_PATH);
-    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_TOO_LARGE" });
+    await expect(instagramConnector.resolve(REEL_PATH)).rejects.toThrow("SOURCE_PROVIDER_TEMPORARY_FAILURE");
+  });
+
+  it("treats a non-JSON oEmbed body as unavailable metadata", async () => {
+    stubFetch([
+      { match: "oembed", respond: () => new Response("<html>login</html>", { status: 200 }) },
+    ]);
+
+    await expect(instagramConnector.resolve(REEL_PATH)).rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
   });
 
   it("rejects hosts outside the Instagram page allowlist without any network access", async () => {
@@ -162,14 +137,5 @@ describe("instagramConnector", () => {
     await expect(instagramConnector.resolve("https://instagram.com.attacker.example/reel/BAAB/"))
       .rejects.toThrow("UNSUPPORTED_SOURCE");
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("reports a transient provider error as retryable instead of a permanent content failure", async () => {
-    stubFetch([
-      { match: "i.instagram.com", respond: () => graphqlResponse([], "fail") },
-      { match: "/reel/BAAB/", respond: () => new Response("oops", { status: 503 }) },
-    ]);
-
-    await expect(instagramConnector.resolve(REEL_PATH)).rejects.toThrow("SOURCE_PROVIDER_TEMPORARY_FAILURE");
   });
 });

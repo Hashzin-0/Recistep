@@ -1,10 +1,22 @@
 import { checkUserRateLimit } from "@/lib/server/rate-limit";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { authenticateSupabaseAccessToken, createShoppingListFromRecipes, getShoppingListForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
+import { authenticateSupabaseAccessToken, createShoppingListFromRecipes, getShoppingListForUser, getSupabaseConfig, listShoppingListsForUser } from "@/lib/server/supabase-rest";
+import { authenticateRequest } from "@/lib/server/route-auth";
 
 export const runtime = "nodejs";
 const schema = z.object({ recipe_ids: z.array(z.string().uuid()).min(1).max(50) }).strict();
+
+export async function GET(request: Request) {
+  const auth = await authenticateRequest(request);
+  if (!auth.ok) return auth.response;
+  try {
+    const data = await listShoppingListsForUser(auth.user.id);
+    return NextResponse.json({ data });
+  } catch {
+    return NextResponse.json({ error: { code: "SHOPPING_LISTS_READ_FAILED", message: "Não foi possível carregar suas listas de compras.", retryable: true } }, { status: 503 });
+  }
+}
 
 export async function POST(request: Request) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();

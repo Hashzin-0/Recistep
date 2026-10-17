@@ -6,7 +6,14 @@ import {
   updateSourceImport,
 } from "@/lib/server/supabase-rest";
 import { getSourceConnector } from "@/lib/providers/sources/registry";
-import { isMediaContent, type ResolvedSource } from "@/lib/providers/sources/source-connector";
+import {
+  isMediaContent,
+  isUnsupportedContent,
+  MIN_PUBLIC_TEXT_LENGTH,
+  type MediaContent,
+  type ResolvedSource,
+} from "@/lib/providers/sources/source-connector";
+import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
 import {
   streamRecipeFromTranscript,
   streamRecipeFromMediaUrl,
@@ -76,39 +83,74 @@ export const processImportRequested = inngest.createFunction(
       error_message: null,
     }));
 
-    // Recognizing a URL never guarantees the media can be acquired. When the
-    // provider cannot fetch the file, the import asks for an authorized
-    // transcript instead of reporting a false success.
+    // Recognizing a URL never guarantees the media can be acquired. The content
+    // is analyzed as a public video URL when the provider can fetch it, then as
+    // public caption/subtitle text, and only then an authorized transcript is
+    // requested instead of reporting a false success.
     const content = resolved.content;
-    if (!isMediaContent(content)) {
-      const unavailableCode = content.code;
-      const unavailableReason = content.reason;
+
+    if (isUnsupportedContent(content)) {
+      await step.run("persist-unanalyzable-source", async () => updateSourceImport(id, {
+        status: "failed",
+        error_code: content.code,
+        error_message: content.reason,
+      }));
+      return { id, status: "failed" };
+    }
+
+    // Public captions and subtitle tracks are read outside any durable step so
+    // the spoken text never lands in the workflow's step history.
+    let publicText: string | null = null;
+    if (content.kind === "public_text") {
+      publicText = content.text;
+    } else if (content.kind === "external_subtitles") {
+      try {
+        publicText = await fetchPublicSubtitlesText({ url: content.url, platform: record.platform });
+      } catch {
+        publicText = null;
+      }
+    }
+
+    const extraction: { kind: "media"; content: MediaContent } | { kind: "text"; transcript: string } | null =
+      publicText && publicText.length >= MIN_PUBLIC_TEXT_LENGTH
+        ? { kind: "text", transcript: publicText }
+        : isMediaContent(content)
+          ? { kind: "media", content }
+          : null;
+
+    if (!extraction) {
+      const requestable = content.kind === "transcript_required" ? content : null;
       await step.run("request-transcript-for-unavailable-media", async () => updateSourceImport(id, {
         status: "source_content_required",
-        error_code: unavailableCode,
-        error_message: unavailableReason,
+        error_code: requestable?.code ?? "SOURCE_MEDIA_UNAVAILABLE",
+        error_message:
+          requestable?.reason ??
+          "Não foi possível analisar o conteúdo público desta fonte. Envie uma transcrição autorizada para continuar.",
       }));
       return { id, status: "source_content_required", contentUnavailable: true };
     }
-
-    const mediaUrl = content.mediaUrl;
-    const mimeType = content.kind === "external_media" ? content.mimeType : undefined;
 
     try {
       const titleCache = await step.run("lookup-recipe-by-normalized-title", async () => {
         try { return await findCachedRecipeByTitle(metadata.title); }
         catch { return null; }
       });
-      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-video", async () =>
+      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-source", async () =>
         streamExtractToImport({
           importId: id,
-          stream: streamRecipeFromMediaUrl({
-            mediaUrl,
-            platform: record.platform,
-            mimeType,
-            locale: record.locale,
-            sourceTitle: metadata.title,
-          }),
+          stream: extraction.kind === "media"
+            ? streamRecipeFromMediaUrl({
+              mediaUrl: extraction.content.mediaUrl,
+              platform: record.platform,
+              mimeType: extraction.content.kind === "external_media" ? extraction.content.mimeType : undefined,
+              locale: record.locale,
+              sourceTitle: metadata.title,
+            })
+            : streamRecipeFromTranscript({
+              transcript: extraction.transcript,
+              locale: record.locale,
+              sourceTitle: metadata.title,
+            }),
         }),
       );
       await step.run("persist-recipe-draft-for-review", async () => updateSourceImport(id, {

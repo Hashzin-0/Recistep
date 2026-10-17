@@ -9,6 +9,7 @@ afterEach(() => {
 
 const VIDEO_URL = "https://v16-sign.tiktokcdn.com/video/play/abc.mp4";
 const COVER_URL = "https://p16-sign.tiktokcdn.com/cover.jpg";
+const SUBTITLE_URL = "https://v16m-webapp.tiktokcdn-us.com/sub/play.vtt";
 
 function rehydrationPage(video: Record<string, unknown>, statusCode = 0): string {
   const payload = {
@@ -165,6 +166,52 @@ describe("tiktokConnector", () => {
 
     await expect(tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123"))
       .rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
+  });
+
+  it("falls back to the public caption track when the CDN rejects the video", async () => {
+    const video = recipeVideo();
+    (video.video as Record<string, unknown>).subtitleInfos = [
+      { LanguageCodeName: "por-BR", Url: SUBTITLE_URL },
+    ];
+
+    stubFetch([
+      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
+      { match: "play/abc.mp4", respond: () => new Response("forbidden", { status: 403 }) },
+    ]);
+
+    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
+    expect(resolved.content).toEqual({ kind: "external_subtitles", url: SUBTITLE_URL, mimeType: "text/vtt" });
+  });
+
+  it("uses the caption as public text when there is no video and no subtitle track", async () => {
+    const video = recipeVideo();
+    (video.video as Record<string, unknown>) = { cover: COVER_URL };
+    video.desc =
+      "Bolo de chocolate: 200g de chocolate meio amargo, 3 ovos, 1 xícara de açúcar, 2 xícaras de farinha. " +
+      "Misture tudo, leve ao forno por 35 minutos e deixe esfriar antes de servir.";
+
+    stubFetch([
+      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
+    ]);
+
+    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
+    expect(resolved.content).toMatchObject({ kind: "public_text" });
+    if (resolved.content.kind === "public_text") {
+      expect(resolved.content.text).toContain("200g de chocolate");
+    }
+  });
+
+  it("ignores subtitle tracks served from untrusted hosts", async () => {
+    const video = recipeVideo();
+    (video.video as Record<string, unknown>).subtitleInfos = [{ Url: "https://attacker.example/sub.vtt" }];
+
+    stubFetch([
+      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
+      { match: "play/abc.mp4", respond: () => new Response("forbidden", { status: 403 }) },
+    ]);
+
+    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
+    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_UNAVAILABLE" });
   });
 
   it("rejects hosts outside the TikTok page allowlist without any network access", async () => {

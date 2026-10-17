@@ -746,7 +746,7 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 ### Limitações e bloqueios explícitos
 - Não foi encontrado um projeto Supabase dedicado ao Recistep entre os projetos conectados. A migração não foi aplicada a outro projeto.
 - Nenhuma credencial Supabase/Gemini/Inngest foi configurada ou exposta. A rota não funcionará até o ambiente ser configurado.
-- A análise de URL do YouTube usa o recurso de vídeo público da API Gemini (em prévia e sujeito a limites do provedor); só vídeos públicos são elegíveis. TikTok e Instagram ainda não têm conector de conteúdo implementado.
+- A análise de URL do YouTube usa o recurso de vídeo público da API Gemini (em prévia e sujeito a limites do provedor); só vídeos públicos são elegíveis. TikTok e Instagram usam métodos públicos permitidos (legenda oEmbed e trilha de legendas WebVTT) porque os CDNs de vídeo recusam requisições de servidor sem login/cookie.
 - Para YouTube público, a extração Gemini pode analisar diretamente o vídeo; se isso não funcionar ou não houver chave Gemini, o fluxo solicita transcrição autorizada. O rascunho fica em `review_required` e não é salvo como receita confirmada automaticamente.
 - O arquivo de migração foi criado diretamente via API do GitHub, pois não havia checkout/CLI Supabase disponível para gerar o nome. Deve ser revisado e validado antes da aplicação.
 - Testes, typecheck, build, execução da migração e Supabase advisors **não foram executados** nesta sessão.
@@ -812,3 +812,21 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - lib/inngest/functions.ts, app/api/v1/imports/route.ts
 - components/recipe-planner.tsx, app/api/v1/shopping-lists/**, app/page.tsx, app/globals.css
 - supabase/migrations/20261017120637_recipe_cache_and_shopping.sql e 20261017120831_recipe_cache_service_policy.sql
+
+
+## Registro de execução — 2026-10-17 — Etapa 7: conectores de conteúdo Instagram e TikTok
+
+### Evidência das plataformas (verificada por requisição real de servidor)
+- Instagram: `i.instagram.com/api/v1/media/{id}/info/` responde 302 para `/accounts/login/`; `POST www.instagram.com/api/graphql` e as páginas `/reel/{code}/` e `/reel/{code}/embed/captioned/` retornam apenas o shell JS (sem `og:video`, sem dados embutidos). O único dado público é o oEmbed (`www.instagram.com/api/v1/oembed/`), que devolve a legenda completa, autor e thumbnail — sem URL de vídeo.
+- TikTok: a página ainda expõe `__UNIVERSAL_DATA_FOR_REHYDRATION__` com `playAddr`, mas o CDN retorna 403 (URL assinada com `tk=tt_chain_token`); a trilha de legendas pública (`video.subtitleInfos[].Url`) responde 200 sem cookie e traz a fala real.
+
+### Implementação
+- Contrato `ResolvedContent` ampliado: `external_subtitles`, `public_text`, `unsupported_content` (terminal, não pede transcrição), além de `external_media`/`youtube_url`/`transcript_required`.
+- Instagram resolve via oEmbed público: legenda utilizável (≥ 80 caracteres) vira `public_text`; caso contrário o link é reportado como não analisável (`SOURCE_NOT_ANALYZABLE`), sem formulário de transcrição.
+- TikTok resolve em cascata: `playAddr` (best-effort) → trilha WebVTT pública → legenda do post → transcrição autorizada.
+- `lib/providers/sources/vtt.ts` converte WebVTT em texto; `lib/providers/media/public-subtitles.ts` baixa a trilha respeitando a allowlist de hosts de mídia.
+- O worker lê legendas públicas fora de `step.run` para que a fala não entre no histórico de steps do Inngest.
+- YouTube permanece inalterado (vídeo público analisado diretamente pelo Gemini).
+
+### Validação
+- O probe de servidor confirmou os bloqueios acima a partir de um IP de datacenter.

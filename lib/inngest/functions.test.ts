@@ -23,6 +23,10 @@ vi.mock("@/lib/providers/sources/registry", () => ({
   getSourceConnector: vi.fn(),
 }));
 
+vi.mock("@/lib/providers/media/public-subtitles", () => ({
+  fetchPublicSubtitlesText: vi.fn(),
+}));
+
 vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => {
   class GeminiExtractionError extends Error {
     constructor(
@@ -46,7 +50,8 @@ vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => {
 import { processImportRequested } from "./functions";
 import { getSourceImport, updateSourceImport } from "@/lib/server/supabase-rest";
 import { getSourceConnector } from "@/lib/providers/sources/registry";
-import { streamRecipeFromMediaUrl } from "@/lib/providers/ai/gemini-recipe-extractor";
+import { streamRecipeFromMediaUrl, streamRecipeFromTranscript } from "@/lib/providers/ai/gemini-recipe-extractor";
+import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
 import type { SourceConnector, ResolvedSource } from "@/lib/providers/sources/source-connector";
 
 const IMPORT_ID = "11111111-2222-4333-8444-555555555555";
@@ -112,6 +117,12 @@ function stubStream(draft: unknown) {
   });
 }
 
+function stubTextStream(draft: unknown) {
+  vi.mocked(streamRecipeFromTranscript).mockImplementation(async function* () {
+    yield draft as never;
+  });
+}
+
 function persistedPatches(): Array<Record<string, unknown>> {
   return vi.mocked(updateSourceImport).mock.calls.map(([, patch]) => patch as Record<string, unknown>);
 }
@@ -120,6 +131,8 @@ beforeEach(() => {
   vi.mocked(getSourceImport).mockResolvedValue(sourceImport() as never);
   vi.mocked(updateSourceImport).mockClear();
   vi.mocked(streamRecipeFromMediaUrl).mockReset();
+  vi.mocked(streamRecipeFromTranscript).mockReset();
+  vi.mocked(fetchPublicSubtitlesText).mockReset();
 });
 
 describe("processImportRequested", () => {
@@ -208,6 +221,81 @@ describe("processImportRequested", () => {
       handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep }),
     ).rejects.toThrow("SOURCE_PROVIDER_TEMPORARY_FAILURE");
     expect(persistedPatches().some((patch) => patch.status === "failed")).toBe(false);
+  });
+
+  it("extracts from the public caption exposed by the connector", async () => {
+    const draft = { title: "Bolo de cenoura" };
+    const caption = "Bolo de cenoura: 3 cenouras, 4 ovos, óleo, açúcar e farinha. Bata, asse e sirva.".padEnd(90, " ");
+    stubConnector(async () => resolvedSource({ kind: "public_text", text: caption }));
+    stubTextStream(draft);
+
+    const result = await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(result).toMatchObject({ id: IMPORT_ID, status: "review_required" });
+    expect(streamRecipeFromTranscript).toHaveBeenCalledWith({
+      transcript: caption,
+      locale: "pt-BR",
+      sourceTitle: "Bolo de cenoura",
+    });
+    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(persistedPatches().find((patch) => patch.status === "review_required")).toMatchObject({ recipe_draft: draft });
+  });
+
+  it("downloads the public subtitle track outside the steps and extracts from it", async () => {
+    const draft = { title: "Bolo de chocolate" };
+    stubConnector(async () => resolvedSource({
+      kind: "external_subtitles",
+      url: "https://v16m-webapp.tiktokcdn-us.com/sub.vtt",
+      mimeType: "text/vtt",
+    }));
+    vi.mocked(fetchPublicSubtitlesText).mockResolvedValue("Adicione a farinha e mexa bem até ficar homogêneo.".padEnd(90, " "));
+    stubTextStream(draft);
+
+    const result = await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(result).toMatchObject({ id: IMPORT_ID, status: "review_required" });
+    expect(fetchPublicSubtitlesText).toHaveBeenCalledWith({
+      url: "https://v16m-webapp.tiktokcdn-us.com/sub.vtt",
+      platform: "tiktok",
+    });
+    expect(streamRecipeFromTranscript).toHaveBeenCalled();
+  });
+
+  it("asks for a transcript when the public subtitle track is unavailable", async () => {
+    stubConnector(async () => resolvedSource({
+      kind: "external_subtitles",
+      url: "https://v16m-webapp.tiktokcdn-us.com/sub.vtt",
+      mimeType: "text/vtt",
+    }));
+    vi.mocked(fetchPublicSubtitlesText).mockRejectedValue(new Error("SOURCE_PROVIDER_TEMPORARY_FAILURE"));
+
+    const result = await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(result).toMatchObject({ id: IMPORT_ID, status: "source_content_required" });
+    expect(streamRecipeFromTranscript).not.toHaveBeenCalled();
+    expect(persistedPatches().at(-1)).toMatchObject({
+      status: "source_content_required",
+      error_code: "SOURCE_MEDIA_UNAVAILABLE",
+    });
+  });
+
+  it("fails with an explicit code when the source cannot be analyzed at all", async () => {
+    stubConnector(async () => resolvedSource({
+      kind: "unsupported_content",
+      code: "SOURCE_NOT_ANALYZABLE",
+      reason: "Não foi possível analisar este link do Instagram.",
+    }));
+
+    const result = await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(result).toMatchObject({ id: IMPORT_ID, status: "failed" });
+    expect(streamRecipeFromTranscript).not.toHaveBeenCalled();
+    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(persistedPatches().at(-1)).toMatchObject({
+      status: "failed",
+      error_code: "SOURCE_NOT_ANALYZABLE",
+      error_message: "Não foi possível analisar este link do Instagram.",
+    });
   });
 
   it("does not run any work when the import is no longer queued", async () => {

@@ -11,6 +11,7 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 - Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
 - Workflow durável Inngest para análise de vídeos públicos do YouTube e extração de transcrições.
 - Conector YouTube oEmbed para metadados públicos e análise de vídeos públicos diretamente pela API Gemini. O Recistep não baixa o vídeo por conta própria; o recurso de URL do YouTube na API Gemini está em prévia e só aceita vídeos públicos.
+- Conectores de conteúdo Instagram e TikTok por métodos públicos permitidos: o Instagram usa o oEmbed oficial (legenda) porque o vídeo fica atrás de login; o TikTok tenta o CDN como best-effort e usa a trilha de legendas WebVTT pública como fonte confiável.
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
 - Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
 - Interface de envio de transcrição fornecida pelo usuário e visualização do rascunho gerado, necessário quando não há conector autorizado para conteúdo.
@@ -87,7 +88,7 @@ O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
+O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, os CDNs recusam requisições sem login, então a receita é extraída da legenda pública (oEmbed); quando a legenda não traz a receita, o link é reportado como não analisável. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
 
 ## Login com Google pelo Supabase
 
@@ -114,8 +115,9 @@ Como funciona:
 - O áudio sai do microfone em PCM 16 kHz e o modelo responde em PCM 24 kHz. Não há captura de vídeo e o Recistep não grava áudio.
 - As declarações de função declaradas para o agente usam `behavior: "NON_BLOCKING"`, exigido pelo modelo `gemini-3.8-live-extended-thinking`.
 - Requer navegador com `getUserMedia` (Chrome, Edge ou Safari recente). Use fones de ouvido para evitar eco.
+- A interface é um HUD flutuante no canto inferior direito, desenhado em canvas 2D (sem dependências novas): conectado, mostra só o orb, que pulsa com a voz — toque para encerrar a conversa e segure para silenciar o microfone; desconectado, mostra o orb parado com o botão “Ativar assistente de voz”. O orb respeita `prefers-reduced-motion` e pausa quando a aba fica oculta.
 
-Código: `lib/voice/` (configuração, sessão, áudio, ferramentas e prompts), `app/api/v1/voice/token/route.ts` (token) e `components/voice-agent-panel.tsx` (interface).
+Código: `lib/voice/` (configuração, sessão, áudio, ferramentas, prompts e geometria do orb em `orb-visuals.ts`), `app/api/v1/voice/token/route.ts` (token) e `components/voice-orb.tsx` + `components/voice-assistant-hud.tsx` (interface).
 
 ## Configuração de ambiente
 
@@ -141,11 +143,31 @@ O plano detalhado de 14 critérios está em [plano.md](./plano.md). Ele distingu
 - Uma URL já conhecida pode receber o rascunho persistido sem chamar Gemini. No worker, títulos normalizados idênticos também podem reutilizar o rascunho; o fingerprint completo é guardado para identificar receitas iguais após extração. Títulos genéricos curtos são ignorados para reduzir colisões.
 - O cache é uma otimização, não a fonte final da receita confirmada: cada usuário ainda confirma a receita na própria conta.
 
+## Abas de navegação e CRUD de receitas
+
+A interface agora é dividida em três abas por rota, com um cabeçalho compartilhado (`components/app-header.tsx`) e estado de autenticação em contexto (`components/auth-provider.tsx`):
+
+- **Receitas** (`/`): importação de links, revisão, confirmação, modo cozinha e o botão para criar uma receita manualmente.
+- **Minhas receitas** (`/minhas-receitas`): lista das receitas salvas do usuário autenticado — somente o dono tem acesso. Abre o detalhe (`/minhas-receitas/{id}`), inicia o preparo (modo cozinha), edita (`/minhas-receitas/{id}/editar`) e exclui.
+- **Lista de compras** (`/lista-de-compras`): lista as listas do usuário, cria uma nova a partir das receitas salvas selecionadas, marca itens comprados e exclui listas.
+
+Endpoints:
+
+- `GET /api/v1/recipes` lista as receitas confirmadas do usuário.
+- `POST /api/v1/recipes` cria uma receita manual (valida pelo schema Zod estrito; rate limit por usuário).
+- `GET /api/v1/recipes/{id}` retorna a receita com ingredientes e etapas (apenas do próprio usuário).
+- `PATCH /api/v1/recipes/{id}` substitui ingredientes e etapas de forma atômica.
+- `DELETE /api/v1/recipes/{id}` exclui a receita (cascata em ingredientes e etapas).
+- `GET /api/v1/shopping-lists` lista as listas do usuário.
+- `DELETE /api/v1/shopping-lists/{id}` exclui a lista.
+
+A migração `supabase/migrations/20261017150000_recipe_crud.sql` cria as funções transacionais `create_manual_recipe` e `update_recipe` usadas pela API. Ela ainda precisa ser aplicada ao projeto Supabase dedicado antes de ativar o CRUD manual.
+
 ## Planejamento e lista de compras
 
 - O ajuste de porções usa a função determinística scaleIngredients, preserva ingredientes sem quantidade e não converte unidades incompatíveis.
 - POST /api/v1/shopping-lists cria uma lista a partir de uma ou mais receitas confirmadas do próprio usuário.
-- GET /api/v1/shopping-lists/{id} consulta a lista pertencente ao usuário.
-- PATCH /api/v1/shopping-lists/{id}/items/{itemId} persiste a marcação de item comprado.
+- GET /api/v1/shopping-lists lista as listas e GET /api/v1/shopping-lists/{id} consulta a lista pertencente ao usuário.
+- PATCH /api/v1/shopping-lists/{id}/items/{itemId} persiste a marcação de item comprado. DELETE /api/v1/shopping-lists/{id} exclui a lista.
 - A consolidação agrupa apenas nomes normalizados com unidade igual; itens sem quantidade conhecida não recebem soma inventada. Cada item guarda IDs das receitas e dos ingredientes de origem.
 - As migrations 20261017120637_recipe_cache_and_shopping.sql e 20261017120831_recipe_cache_service_policy.sql criam o cache, hashes, listas, itens, políticas RLS e função transacional de criação da lista.

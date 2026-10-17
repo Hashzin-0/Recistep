@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRunningTimer, formatDuration, pauseTimer, remainingTimerSeconds, resumeTimer, type CookingTimerState } from "@/lib/recipe/cooking-session";
-import { VoiceAgentPanel, type VoiceControlApi } from "@/components/voice-agent-panel";
+import { VoiceAssistantHud, type VoiceControlApi } from "@/components/voice-assistant-hud";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildKitchenSystemInstruction } from "@/lib/voice/prompts";
 import {
@@ -219,7 +219,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
       </div>
       <aside className="kitchen-side-column">
         {getAccessToken && (
-          <VoiceAgentPanel
+          <VoiceAssistantHud
             contextLabel="Preparo da receita"
             systemInstruction={systemInstruction}
             toolGroups={KITCHEN_TOOL_GROUPS}

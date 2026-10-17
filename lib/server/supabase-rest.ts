@@ -1,4 +1,5 @@
 import "server-only";
+import { recipeSummary, type DbIngredientRow, type DbRecipeRow, type DbStepRow, type RecipeDetail, type RecipeSummary } from "@/lib/recipe/recipe-draft";
 
 export type ImportStatus =
   | "queued"
@@ -265,6 +266,117 @@ export async function setShoppingItemPurchased(input: {
   });
   return rows[0] ?? null;
 }
+type RecipeListRow = DbRecipeRow & {
+  ingredients: { count: number }[] | null;
+  preparation_steps: { count: number }[] | null;
+};
+
+type RecipeDetailRow = DbRecipeRow & {
+  ingredients: DbIngredientRow[] | null;
+  preparation_steps: DbStepRow[] | null;
+};
+
+const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,created_at,updated_at";
+
+export async function listRecipesForUser(userId: string): Promise<RecipeSummary[]> {
+  const params = new URLSearchParams({
+    select: `${RECIPE_COLUMNS},ingredients(count),preparation_steps(count)`,
+    user_id: `eq.${userId}`,
+    order: "updated_at.desc",
+  });
+  const rows = await supabaseRequest<RecipeListRow[]>("recipes?" + params.toString());
+  return rows.map((row) => recipeSummary(row, row.ingredients?.[0]?.count ?? 0, row.preparation_steps?.[0]?.count ?? 0));
+}
+
+export async function getRecipeForUser(recipeId: string, userId: string): Promise<RecipeDetail | null> {
+  const params = new URLSearchParams({
+    select: `${RECIPE_COLUMNS},ingredients(*),preparation_steps(*)`,
+    id: `eq.${recipeId}`,
+    user_id: `eq.${userId}`,
+    limit: "1",
+    "ingredients.order": "position.asc",
+    "preparation_steps.order": "position.asc",
+  });
+  const rows = await supabaseRequest<RecipeDetailRow[]>("recipes?" + params.toString());
+  const row = rows[0];
+  if (!row) return null;
+  const { ingredients, preparation_steps, ...recipe } = row;
+  return { recipe, ingredients: ingredients ?? [], steps: preparation_steps ?? [] };
+}
+
+export async function createManualRecipe(
+  userId: string,
+  recipe: unknown,
+): Promise<{ recipe_id: string }> {
+  const result = await supabaseRequest<{ recipe_id: string } | { recipe_id: string }[]>(
+    "rpc/create_manual_recipe",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ p_user_id: userId, p_recipe: recipe }),
+    },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.recipe_id !== "string") throw new Error("RECIPE_CREATE_EMPTY");
+  return row;
+}
+
+export async function updateRecipeForUser(
+  recipeId: string,
+  userId: string,
+  recipe: unknown,
+): Promise<{ recipe_id: string }> {
+  const result = await supabaseRequest<{ recipe_id: string } | { recipe_id: string }[]>(
+    "rpc/update_recipe",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ p_recipe_id: recipeId, p_user_id: userId, p_recipe: recipe }),
+    },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.recipe_id !== "string") throw new Error("RECIPE_UPDATE_EMPTY");
+  return row;
+}
+
+export async function deleteRecipeForUser(recipeId: string, userId: string): Promise<boolean> {
+  const params = new URLSearchParams({ id: `eq.${recipeId}`, user_id: `eq.${userId}`, select: "id" });
+  const rows = await supabaseRequest<{ id: string }[]>("recipes?" + params.toString(), {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  });
+  return rows.length > 0;
+}
+
+export async function listShoppingListsForUser(userId: string): Promise<ShoppingListRecord[]> {
+  const listParams = new URLSearchParams({
+    select: "id,title,created_at,updated_at",
+    user_id: `eq.${userId}`,
+    order: "updated_at.desc",
+  });
+  const lists = await supabaseRequest<Omit<ShoppingListRecord, "items">[]>("shopping_lists?" + listParams.toString());
+  if (lists.length === 0) return [];
+  const itemParams = new URLSearchParams({
+    select: "id,shopping_list_id,name,normalized_name,quantity,unit,notes,is_purchased,source_recipe_ids,source_ingredient_ids,position",
+    shopping_list_id: `in.(${lists.map((list) => list.id).join(",")})`,
+    order: "position.asc",
+  });
+  const items = await supabaseRequest<ShoppingListItemRecord[]>("shopping_list_items?" + itemParams.toString());
+  return lists.map((list) => ({
+    ...list,
+    items: items.filter((item) => item.shopping_list_id === list.id),
+  }));
+}
+
+export async function deleteShoppingListForUser(listId: string, userId: string): Promise<boolean> {
+  const params = new URLSearchParams({ id: `eq.${listId}`, user_id: `eq.${userId}`, select: "id" });
+  const rows = await supabaseRequest<{ id: string }[]>("shopping_lists?" + params.toString(), {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  });
+  return rows.length > 0;
+}
+
 export type RecipeCacheDbEntry = {
   source_url_hash: string | null;
   source_content_hash: string | null;
