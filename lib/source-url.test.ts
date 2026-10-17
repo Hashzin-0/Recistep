@@ -35,8 +35,6 @@ describe("validateSourceUrl", () => {
   it("rejects oversized input", () => {
     expect(validateSourceUrl("https://youtube.com/" + "a".repeat(2050)).ok).toBe(false);
   });
-});
-
   it("recognizes the exact YouTube video supplied for the end-to-end test", () => {
     const result = validateSourceUrl("https://youtu.be/olw3gMc4YlU?is=JlA_W00Jux4R6fQO");
 
@@ -47,3 +45,4 @@ describe("validateSourceUrl", () => {
       expect(result.url.pathname).toBe("/olw3gMc4YlU");
     }
   });
+});
