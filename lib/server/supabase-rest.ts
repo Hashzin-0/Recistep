@@ -172,7 +172,7 @@ export async function getUserSourceImport(
   userId: string,
 ): Promise<SourceImportRecord | null> {
   const params = new URLSearchParams({
-    select: "id,user_id,source_url,platform,locale,servings_target,status,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
+    select: "id,user_id,source_url,platform,locale,servings_target,status,recipe_id,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
     id: `eq.${id}`,
     user_id: `eq.${userId}`,
     limit: "1",
@@ -189,7 +189,7 @@ export async function confirmRecipeFromImport(input: {
   user_id: string;
   recipe: unknown;
 }): Promise<{ recipe_id: string; already_confirmed: boolean }> {
-  const result = await supabaseRequest<Array<{ recipe_id: string; already_confirmed: boolean }>>(
+  const result = await supabaseRequest<{ recipe_id: string; already_confirmed: boolean } | Array<{ recipe_id: string; already_confirmed: boolean }>>(
     "rpc/confirm_recipe_from_import",
     {
       method: "POST",
