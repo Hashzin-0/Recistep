@@ -5,7 +5,31 @@ import { draftFromDbRecipe } from "@/lib/recipe/recipe-draft";
 import { checkUserRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
-const MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
+const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
+
+function sanitizeSvg(raw: string): string | null {
+  const svg = raw.replace(/^```(?:svg|xml)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  if (!/^<svg\b[\s\S]*<\/svg>$/i.test(svg) || svg.length > 2_000_000) return null;
+  if (/<\s*(script|foreignObject|iframe|image|use|audio|video|style|link|!DOCTYPE|!ENTITY)\b/i.test(svg) || /\bon\w+\s*=/i.test(svg) || /(?:javascript:|data:|https?:|url\s*\()/i.test(svg)) return null;
+  const tags = new Set(["svg", "g", "rect", "text", "tspan", "line", "path", "circle", "ellipse", "polygon", "polyline", "defs", "marker"]);
+  const attrs = new Set(["xmlns", "width", "height", "viewBox", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "fill", "stroke", "stroke-width", "font-size", "font-family", "font-weight", "text-anchor", "dominant-baseline", "transform", "opacity", "marker-end", "id", "refX", "refY", "markerWidth", "markerHeight", "orient"]);
+  let valid = true;
+  const sanitized = svg.replace(/<\/?([A-Za-z][\w:-]*)\b([^>]*)>/g, (tag, tagName: string, rawAttrs: string) => {
+    if (!tags.has(tagName)) { valid = false; return ""; }
+    if (tag.startsWith("</")) return `</${tagName}>`;
+    let kept = "";
+    const attrPattern = /([A-Za-z_:][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g;
+    let match: RegExpExecArray | null;
+    while ((match = attrPattern.exec(rawAttrs))) {
+      if (!attrs.has(match[1])) { valid = false; continue; }
+      if (/[<>]/.test(match[2])) { valid = false; continue; }
+      kept += ` ${match[1]}=${match[2]}`;
+    }
+    return `<${tagName}${kept}${/\/\s*>$/.test(tag) ? "/>" : ">"}`;
+  });
+  if (!valid || !sanitized.startsWith("<svg") || !sanitized.endsWith("</svg>")) return null;
+  return sanitized;
+}
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await authenticateRequest(request);
@@ -28,34 +52,31 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   try {
     const prompt = [
-      "Crie uma única imagem em formato infográfico de fluxograma culinário em português brasileiro.",
-      "Mostre cada etapa em cartões numerados conectados por setas, com pequenas ilustrações claras dos utensílios e ações.",
-      "Layout vertical, fundo claro, alto contraste, texto curto e legível, sem ingredientes ou passos que não estejam na lista.",
-      "Não invente etapas; mantenha a ordem fornecida. Não use marcas d'água.",
+      "Gere um fluxograma culinário como um único documento SVG válido, completo e autocontido, em português brasileiro.",
+      "Retorne SOMENTE o SVG, sem Markdown ou explicações. Use viewBox=\"0 0 900 1200\", fundo claro, título no topo, cartões arredondados numerados conectados por setas e tipografia legível.",
+      "Use apenas elementos SVG básicos: svg, g, rect, text, tspan, line, path, circle, ellipse, polygon, polyline, defs e marker. Não use script, style, imagem externa, links, animação, foreignObject nem atributos de evento.",
+      "Organize as etapas verticalmente, mantenha texto curto e legível e não invente etapas ou ingredientes. Inclua todas as etapas fornecidas na ordem.",
       `Receita: ${title}`,
       ...steps.map((step, index) => `${index + 1}. ${step}`),
-    ].join("\n");
+    ].join("\\n");
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], responseFormat: { image: { aspectRatio: "3:4", imageSize: "1K" } } } }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "text/plain", maxOutputTokens: 12000 } }),
       signal: AbortSignal.timeout(90000),
     });
-    const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string }; inline_data?: { data?: string; mime_type?: string } }[] } }[]; error?: { message?: string } } | null;
+    const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] }[] }[]; error?: { message?: string } } | null;
     if (!response.ok) {
       console.error("[recipe-flowchart] Gemini rejected request", response.status, payload?.error?.message?.slice(0, 300));
-      return NextResponse.json({ error: { code: response.status === 404 ? "GEMINI_IMAGE_MODEL_UNAVAILABLE" : "GEMINI_IMAGE_GENERATION_FAILED", message: response.status === 404 ? "O modelo configurado não está disponível para geração de imagens nesta conta." : "O Gemini não conseguiu gerar o fluxograma." } }, { status: response.status === 404 ? 503 : 502 });
+      return NextResponse.json({ error: { code: "GEMINI_FLOWCHART_FAILED", message: "O Gemini não conseguiu gerar o fluxograma." } }, { status: 502 });
     }
-    const parts = payload?.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data || part.inline_data?.data);
-    const base64 = imagePart?.inlineData?.data ?? imagePart?.inline_data?.data;
-    const mime = imagePart?.inlineData?.mimeType ?? imagePart?.inline_data?.mime_type ?? "image/png";
-    if (!base64 || !/^image\/(png|jpeg|webp)$/.test(mime)) {
-      return NextResponse.json({ error: { code: "GEMINI_RETURNED_NO_IMAGE", message: "O modelo não retornou uma imagem. Verifique se ele oferece geração de imagens na API." } }, { status: 502 });
-    }
-    const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+    const svgText = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\\n") ?? "";
+    const svg = sanitizeSvg(svgText);
+    if (!svg) return NextResponse.json({ error: { code: "GEMINI_RETURNED_INVALID_SVG", message: "O Gemini não retornou um SVG válido e seguro. Tente novamente." } }, { status: 502 });
+    const mime = "image/svg+xml";
+    const ext = "svg";
     const path = `${auth.user.id}/${id}/flowchart-${crypto.randomUUID()}.${ext}`;
-    const binary = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const binary = new TextEncoder().encode(svg);
     if (binary.byteLength > 8 * 1024 * 1024) return NextResponse.json({ error: { code: "FLOWCHART_TOO_LARGE" } }, { status: 502 });
     const upload = await fetch(`${config.url}/storage/v1/object/recipe-media/${path}`, {
       method: "POST",
@@ -63,7 +84,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       body: binary,
       signal: AbortSignal.timeout(20000),
     });
-    if (!upload.ok) return NextResponse.json({ error: { code: "FLOWCHART_UPLOAD_FAILED", message: "A imagem foi gerada, mas não pôde ser salva." } }, { status: 502 });
+    if (!upload.ok) return NextResponse.json({ error: { code: "FLOWCHART_UPLOAD_FAILED", message: "O fluxograma foi gerado, mas não pôde ser salvo." } }, { status: 502 });
     const url = `${config.url}/storage/v1/object/public/recipe-media/${path}`;
     const update = await fetch(`${config.url}/rest/v1/recipes?id=eq.${id}&user_id=eq.${auth.user.id}`, {
       method: "PATCH",
@@ -72,7 +93,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       signal: AbortSignal.timeout(8000),
     });
     if (!update.ok) return NextResponse.json({ error: { code: "FLOWCHART_SAVE_FAILED" } }, { status: 502 });
-    return NextResponse.json({ preparation_flowchart_url: url, model: MODEL });
+    return NextResponse.json({ preparation_flowchart_url: url, model: MODEL, format: "svg" });
   } catch {
     return NextResponse.json({ error: { code: "FLOWCHART_GENERATION_FAILED", message: "Não foi possível gerar o fluxograma agora." } }, { status: 503 });
   }
