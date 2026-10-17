@@ -189,7 +189,7 @@ As migrations abaixo estão versionadas no repositório e já foram aplicadas ao
 - `supabase/migrations/20261017170000_recipe_layers_media_ratings.sql`
 - `supabase/migrations/20261017170100_recipe_confirmation_layers.sql`
 
-A primeira migration altera as tabelas `ingredients` e `recipes`, cria `recipe_ratings`, configura RLS e cria o bucket público `recipe-media`. As imagens de capa e fluxogramas ficam acessíveis por URL pública do Storage; não envie fotos privadas ou sensíveis.
+As migrations alteram `ingredients` e `recipes`, criam `recipe_ratings`, configuram políticas RLS por usuário, indexam avaliações e permitem SVG no bucket público `recipe-media`. As imagens de capa e fluxogramas ficam acessíveis por URL pública do Storage; não envie fotos privadas ou sensíveis.
 
 A variável de servidor `GEMINI_IMAGE_MODEL` é opcional e, por padrão, usa `gemini-3.1-flash-image`, modelo documentado pela API Gemini para geração de imagens. `GEMINI_API_KEY` deve continuar apenas no servidor. O nome `gemini-3.8-flash` usado para extração de texto não consta na documentação oficial consultada como modelo de geração de imagens; por isso a geração visual usa o modelo de imagem separado. Geração de fluxogramas tem limite de 3 solicitações por usuário por hora e uploads de capa, 20 por dia.
 
