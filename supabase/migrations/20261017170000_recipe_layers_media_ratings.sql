@@ -164,12 +164,13 @@ begin
   delete from public.ingredients where recipe_id = v_recipe_id;
 
   insert into public.ingredients (
-    recipe_id, name, quantity, quantity_text, quantity_min, quantity_max,
+    recipe_id, name, section, quantity, quantity_text, quantity_min, quantity_max,
     unit, unit_normalized, notes, source_evidence, confidence, position
   )
   select
     v_recipe_id,
     ingredient->>'name',
+    coalesce(nullif(ingredient->>'section', ''), 'Ingredientes'),
     nullif(ingredient->>'quantity', 'null')::numeric,
     nullif(ingredient->>'quantity_text', ''),
     nullif(ingredient->>'quantity_min', 'null')::numeric,
