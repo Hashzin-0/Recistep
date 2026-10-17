@@ -5,10 +5,12 @@ export const SUPPORTED_SOURCE_HOSTS = [
   "youtu.be",
   "tiktok.com",
   "www.tiktok.com",
+  "m.tiktok.com",
   "vm.tiktok.com",
   "vt.tiktok.com",
   "instagram.com",
   "www.instagram.com",
+  "m.instagram.com",
 ] as const;
 
 export type SupportedPlatform = "youtube" | "tiktok" | "instagram";
@@ -26,15 +28,35 @@ function platformForHost(hostname: string): SupportedPlatform | null {
     return "youtube";
   }
 
-  if (["tiktok.com", "www.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"].includes(hostname)) {
+  if (["tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"].includes(hostname)) {
     return "tiktok";
   }
 
-  if (["instagram.com", "www.instagram.com"].includes(hostname)) {
+  if (["instagram.com", "www.instagram.com", "m.instagram.com"].includes(hostname)) {
     return "instagram";
   }
 
   return null;
+}
+
+/**
+ * Only the presence of a content path is required; profiles, feeds and pages
+ * cannot be extracted, so rejecting them here fails faster than a queued job.
+ */
+function hasContentPath(platform: SupportedPlatform, url: URL): boolean {
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  if (platform === "instagram") {
+    return segments.length >= 2 || (segments[0] === "share" && segments.length >= 1);
+  }
+
+  if (platform === "tiktok") {
+    const isShortLink = url.hostname === "vm.tiktok.com" || url.hostname === "vt.tiktok.com";
+    if (isShortLink) return segments.length === 1;
+    return segments.length >= 2;
+  }
+
+  return true;
 }
 
 /**
@@ -82,6 +104,14 @@ export function validateSourceUrl(raw: string): SourceUrlResult {
       ok: false,
       code: "UNSUPPORTED_SOURCE",
       message: "Esta plataforma ainda não está na lista de fontes reconhecidas.",
+    };
+  }
+
+  if (!hasContentPath(platform, url)) {
+    return {
+      ok: false,
+      code: "UNSUPPORTED_SOURCE",
+      message: "Informe o link direto de um vídeo ou de um post, não um perfil ou uma página geral.",
     };
   }
 

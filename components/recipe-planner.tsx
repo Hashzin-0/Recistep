@@ -3,7 +3,17 @@
 import { useState } from "react";
 import { scaleIngredients } from "@/lib/recipe/scale-portions";
 
-type Ingredient = { name: string; quantity: number | null; unit: string | null; notes: string | null; source_evidence: string | null; confidence: number };
+type Ingredient = {
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  source_evidence: string | null;
+  confidence: number;
+  quantity_min?: number | null;
+  quantity_max?: number | null;
+  unit_normalized?: string | null;
+};
 type ShoppingItem = { id: string; name: string; quantity: number | null; unit: string | null; notes: string | null; is_purchased: boolean };
 type ShoppingList = { id: string; title: string; items: ShoppingItem[] };
 
@@ -13,8 +23,17 @@ export function PortionScaler({ servings, ingredients, onApply }: { servings: nu
   function apply() {
     if (!servings || !target || target <= 0) return;
     try {
-      const scaled = scaleIngredients(ingredients.map(({ name, quantity, unit }) => ({ name, quantity, unit })), servings, target);
-      onApply(target, ingredients.map((ingredient, index) => ({ ...ingredient, quantity: scaled[index].quantity })));
+      const scaled = scaleIngredients(
+        ingredients.map(({ name, quantity, unit, quantity_min, quantity_max }) => ({ name, quantity, unit, quantityMin: quantity_min, quantityMax: quantity_max })),
+        servings,
+        target,
+      );
+      onApply(target, ingredients.map((ingredient, index) => ({
+        ...ingredient,
+        quantity: scaled[index].quantity,
+        quantity_min: scaled[index].quantityMin ?? null,
+        quantity_max: scaled[index].quantityMax ?? null,
+      })));
       setMessage("Quantidades recalculadas. Confira os arredondamentos antes de confirmar.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível ajustar as porções."); }
   }

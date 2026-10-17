@@ -2,6 +2,8 @@ export interface ScalableIngredient {
   name: string;
   quantity: number | null;
   unit: string | null;
+  quantityMin?: number | null;
+  quantityMax?: number | null;
 }
 
 export interface ScaledIngredient extends ScalableIngredient {
@@ -9,10 +11,15 @@ export interface ScaledIngredient extends ScalableIngredient {
   scaled: boolean;
 }
 
+function scaleValue(value: number | null | undefined, factor: number): number | null {
+  if (value === null || value === undefined) return null;
+  return value * factor;
+}
+
 /**
- * Scales numeric ingredient quantities proportionally. It deliberately does
- * not convert units or round values because those operations require
- * ingredient- and unit-specific culinary rules.
+ * Scales numeric ingredient quantities proportionally, including range bounds
+ * when present. It deliberately does not convert units or round values because
+ * those operations require ingredient- and unit-specific culinary rules.
  */
 export function scaleIngredients(
   ingredients: readonly ScalableIngredient[],
@@ -32,10 +39,9 @@ export function scaleIngredients(
   return ingredients.map((ingredient) => ({
     ...ingredient,
     originalQuantity: ingredient.quantity,
-    quantity:
-      ingredient.quantity === null
-        ? null
-        : ingredient.quantity * factor,
-    scaled: ingredient.quantity !== null,
+    quantity: scaleValue(ingredient.quantity, factor),
+    quantityMin: scaleValue(ingredient.quantityMin, factor),
+    quantityMax: scaleValue(ingredient.quantityMax, factor),
+    scaled: ingredient.quantity !== null && ingredient.quantity !== undefined,
   }));
 }

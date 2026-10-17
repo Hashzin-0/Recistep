@@ -49,4 +49,16 @@ describe("scaleIngredients", () => {
     expect(result[0].quantity).toBeCloseTo(66.6666667);
     expect(result[0].unit).toBe("g");
   });
+
+  it("scales range bounds when present", () => {
+    const result = scaleIngredients(
+      [{ name: "chocolate", quantity: 3, unit: "colher de sopa", quantityMin: 2, quantityMax: 3 }],
+      1,
+      2,
+    );
+
+    expect(result[0].quantity).toBe(6);
+    expect(result[0].quantityMin).toBe(4);
+    expect(result[0].quantityMax).toBe(6);
+  });
 });

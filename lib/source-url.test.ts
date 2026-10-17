@@ -16,6 +16,42 @@ describe("validateSourceUrl", () => {
     if (result.ok) expect(result.platform).toBe("tiktok");
   });
 
+  it("recognizes TikTok short links and photo posts", () => {
+    const shortLink = validateSourceUrl("https://vm.tiktok.com/ZMabcdef/");
+    expect(shortLink.ok).toBe(true);
+    if (shortLink.ok) {
+      expect(shortLink.platform).toBe("tiktok");
+      expect(shortLink.url.hostname).toBe("vm.tiktok.com");
+    }
+
+    expect(validateSourceUrl("https://www.tiktok.com/@cook/photo/123").ok).toBe(true);
+    expect(validateSourceUrl("https://vt.tiktok.com/Zabcdef/").ok).toBe(true);
+  });
+
+  it("recognizes Instagram links", () => {
+    const result = validateSourceUrl("https://www.instagram.com/reel/CxYz123AbC_");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.platform).toBe("instagram");
+  });
+
+  it("recognizes Instagram posts, reels and share links", () => {
+    expect(validateSourceUrl("https://instagram.com/p/CxYz123AbC_/").ok).toBe(true);
+    expect(validateSourceUrl("https://www.instagram.com/reels/CxYz123/").ok).toBe(true);
+    expect(validateSourceUrl("https://www.instagram.com/tv/CxYz123/").ok).toBe(true);
+    expect(validateSourceUrl("https://www.instagram.com/share/reel/CxYz123/").ok).toBe(true);
+  });
+
+  it("rejects profile and feed pages because they cannot be extracted", () => {
+    const profile = validateSourceUrl("https://www.instagram.com/cozinha.ana/");
+    expect(profile.ok).toBe(false);
+    if (!profile.ok) expect(profile.code).toBe("UNSUPPORTED_SOURCE");
+
+    expect(validateSourceUrl("https://www.tiktok.com/@cozinha.ana").ok).toBe(false);
+    expect(validateSourceUrl("https://www.instagram.com/").ok).toBe(false);
+    expect(validateSourceUrl("https://vm.tiktok.com/").ok).toBe(false);
+  });
+
   it("rejects non-HTTPS URLs", () => {
     expect(validateSourceUrl("http://youtube.com/watch?v=x").ok).toBe(false);
   });

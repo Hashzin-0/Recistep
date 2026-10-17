@@ -4,14 +4,15 @@ import { findCachedRecipeByTitle, fingerprintRecipe, hashSourceUrl, persistRecip
 import {
   getSourceImport,
   updateSourceImport,
-  type SourceMetadata,
 } from "@/lib/server/supabase-rest";
-import { fetchYouTubePublicMetadata } from "@/lib/providers/sources/youtube-oembed";
+import { getSourceConnector } from "@/lib/providers/sources/registry";
+import { isMediaContent, type ResolvedSource } from "@/lib/providers/sources/source-connector";
 import {
-  extractRecipeFromTranscript,
-  extractRecipeFromYouTubeUrl,
+  streamRecipeFromTranscript,
+  streamRecipeFromMediaUrl,
   GeminiExtractionError,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
+import { streamExtractToImport } from "@/lib/providers/ai/stream-extractor";
 
 export const processImportRequested = inngest.createFunction(
   {
@@ -48,29 +49,15 @@ export const processImportRequested = inngest.createFunction(
       attempt_count: record.attempt_count + 1,
     }));
 
-    if (record.platform !== "youtube") {
-      await step.run("request-authorized-transcript", async () => updateSourceImport(id, {
-        status: "source_content_required",
-        error_code: "PLATFORM_CONNECTOR_NOT_CONFIGURED",
-        error_message:
-          "Não há conector de conteúdo autorizado habilitado para esta plataforma. Envie uma transcrição que você tenha direito de usar para continuar.",
-      }));
-      return { id, status: "source_content_required" };
-    }
+    const connector = getSourceConnector(record.platform);
 
-    let metadata: SourceMetadata;
+    let resolved: ResolvedSource;
     try {
-      metadata = await step.run("fetch-public-source-metadata", async () =>
-        fetchYouTubePublicMetadata(record.source_url),
+      resolved = await step.run("resolve-public-source-content", async () =>
+        connector.resolve(record.source_url),
       );
-      await step.run("persist-public-source-metadata", async () => updateSourceImport(id, {
-        status: "processing",
-        source_metadata: metadata,
-        error_code: null,
-        error_message: null,
-      }));
     } catch (error) {
-      const code = error instanceof Error ? error.message : "SOURCE_METADATA_FAILURE";
+      const code = error instanceof Error ? error.message : "SOURCE_CONNECTOR_FAILURE";
       if (code === "SOURCE_PROVIDER_TEMPORARY_FAILURE") throw error;
       await step.run("persist-source-metadata-error", async () => updateSourceImport(id, {
         status: "source_content_required",
@@ -81,16 +68,47 @@ export const processImportRequested = inngest.createFunction(
       return { id, status: "source_content_required", metadataUnavailable: true };
     }
 
+    const metadata = resolved.metadata;
+    await step.run("persist-public-source-metadata", async () => updateSourceImport(id, {
+      status: "processing",
+      source_metadata: metadata,
+      error_code: null,
+      error_message: null,
+    }));
+
+    // Recognizing a URL never guarantees the media can be acquired. When the
+    // provider cannot fetch the file, the import asks for an authorized
+    // transcript instead of reporting a false success.
+    const content = resolved.content;
+    if (!isMediaContent(content)) {
+      const unavailableCode = content.code;
+      const unavailableReason = content.reason;
+      await step.run("request-transcript-for-unavailable-media", async () => updateSourceImport(id, {
+        status: "source_content_required",
+        error_code: unavailableCode,
+        error_message: unavailableReason,
+      }));
+      return { id, status: "source_content_required", contentUnavailable: true };
+    }
+
+    const mediaUrl = content.mediaUrl;
+    const mimeType = content.kind === "external_media" ? content.mimeType : undefined;
+
     try {
       const titleCache = await step.run("lookup-recipe-by-normalized-title", async () => {
         try { return await findCachedRecipeByTitle(metadata.title); }
         catch { return null; }
       });
-      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-youtube-video", async () =>
-        extractRecipeFromYouTubeUrl({
-          sourceUrl: record.source_url,
-          locale: record.locale,
-          sourceTitle: metadata.title,
+      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-video", async () =>
+        streamExtractToImport({
+          importId: id,
+          stream: streamRecipeFromMediaUrl({
+            mediaUrl,
+            platform: record.platform,
+            mimeType,
+            locale: record.locale,
+            sourceTitle: metadata.title,
+          }),
         }),
       );
       await step.run("persist-recipe-draft-for-review", async () => updateSourceImport(id, {
@@ -177,13 +195,16 @@ export const processTranscriptSubmitted = inngest.createFunction(
 
     try {
       const draft = await step.run("extract-structured-recipe-with-gemini", async () =>
-        extractRecipeFromTranscript({
-          transcript: record.source_transcript!,
-          locale: record.locale,
-          sourceTitle:
-            typeof record.source_metadata?.title === "string"
-              ? record.source_metadata.title
-              : undefined,
+        streamExtractToImport({
+          importId: id,
+          stream: streamRecipeFromTranscript({
+            transcript: record.source_transcript!,
+            locale: record.locale,
+            sourceTitle:
+              typeof record.source_metadata?.title === "string"
+                ? record.source_metadata.title
+                : undefined,
+          }),
         }),
       );
 

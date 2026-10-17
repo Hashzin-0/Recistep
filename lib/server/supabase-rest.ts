@@ -25,6 +25,8 @@ export type SourceImportRecord = {
   source_metadata: Record<string, unknown> | null;
   source_transcript: string | null;
   recipe_draft: unknown | null;
+  recipe_partial?: unknown | null;
+  recipe_stream_seq?: number;
   error_code: string | null;
   error_message: string | null;
   attempt_count: number;
@@ -164,7 +166,7 @@ export async function updateSourceImport(
   id: string,
   patch: Partial<Pick<
     SourceImportRecord,
-    "status" | "source_metadata" | "source_transcript" | "recipe_draft" | "error_code" | "error_message" | "attempt_count" | "source_url_hash" | "source_content_hash" | "recipe_fingerprint"
+    "status" | "source_metadata" | "source_transcript" | "recipe_draft" | "recipe_partial" | "recipe_stream_seq" | "error_code" | "error_message" | "attempt_count" | "source_url_hash" | "source_content_hash" | "recipe_fingerprint"
   >>,
 ): Promise<void> {
   const params = new URLSearchParams({ id: `eq.${id}` });
@@ -186,6 +188,33 @@ export async function getUserSourceImport(
     limit: "1",
   });
   const records = await supabaseRequest<SourceImportRecord[]>(
+    `source_imports?${params.toString()}`,
+  );
+  return records[0] ?? null;
+}
+
+export type ImportStreamSnapshot = {
+  status: ImportStatus;
+  recipe_draft: unknown | null;
+  recipe_partial: unknown | null;
+  recipe_stream_seq: number;
+  error_code: string | null;
+  error_message: string | null;
+};
+
+// Lean read used by the SSE tailing endpoint. Deliberately excludes the raw
+// transcript and heavy metadata.
+export async function getImportStreamSnapshot(
+  id: string,
+  userId: string,
+): Promise<ImportStreamSnapshot | null> {
+  const params = new URLSearchParams({
+    select: "status,recipe_draft,recipe_partial,recipe_stream_seq,error_code,error_message",
+    id: `eq.${id}`,
+    user_id: `eq.${userId}`,
+    limit: "1",
+  });
+  const records = await supabaseRequest<ImportStreamSnapshot[]>(
     `source_imports?${params.toString()}`,
   );
   return records[0] ?? null;

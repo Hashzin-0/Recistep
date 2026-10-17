@@ -1,12 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRunningTimer, formatDuration, pauseTimer, remainingTimerSeconds, resumeTimer, type CookingTimerState } from "@/lib/recipe/cooking-session";
+import { VoiceAgentPanel, type VoiceControlApi } from "@/components/voice-agent-panel";
+import { defineToolGroup } from "@/lib/voice/function-tool";
+import { buildKitchenSystemInstruction } from "@/lib/voice/prompts";
+import {
+  KITCHEN_TOOLS,
+  executeKitchenTool,
+  withToggledIngredient,
+  withToggledStep,
+  type KitchenVoiceBridge,
+} from "@/lib/voice/recipe-tools";
+import type { ExecuteToolFn } from "@/lib/voice/live-session";
 
 type Ingredient = { name: string; quantity: number | null; unit: string | null; notes: string | null };
 type Step = { position: number; instruction: string; duration_seconds: number | null; temperature_value: number | null; temperature_unit: "C" | "F" | null };
 type SessionState = { completedSteps: number[]; checkedIngredients: number[]; currentStep: number; timer: CookingTimerState | null };
 const emptySession: SessionState = { completedSteps: [], checkedIngredients: [], currentStep: 0, timer: null };
+
+const KITCHEN_TOOL_GROUPS = [defineToolGroup(KITCHEN_TOOLS)];
 
 function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]): SessionState {
   if (!value || typeof value !== "object") return emptySession;
@@ -32,8 +45,9 @@ function quantityLabel(ingredient: Ingredient): string {
   return String(ingredient.quantity) + (ingredient.unit ? " " + ingredient.unit : "");
 }
 
-export function KitchenMode({ recipeId, title, ingredients, steps }: {
-  recipeId: string; title: string; ingredients: Ingredient[]; steps: Step[];
+export function KitchenMode({ recipeId, title, description, servings, ingredients, steps, getAccessToken }: {
+  recipeId: string; title: string; description?: string | null; servings?: number | null;
+  ingredients: Ingredient[]; steps: Step[]; getAccessToken?: () => Promise<string | null>;
 }) {
   const orderedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const [session, setSession] = useState<SessionState>(emptySession);
@@ -43,6 +57,7 @@ export function KitchenMode({ recipeId, title, ingredients, steps }: {
   const [notice, setNotice] = useState("");
   const [online, setOnline] = useState(true);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+  const voiceApiRef = useRef<VoiceControlApi | null>(null);
   const activeStep = orderedSteps.find((step) => step.position === session.currentStep) ?? orderedSteps[0];
   const timerRemaining = session.timer ? remainingTimerSeconds(session.timer, now) : null;
 
@@ -86,30 +101,27 @@ export function KitchenMode({ recipeId, title, ingredients, steps }: {
   function updateSession(patch: Partial<SessionState>) { setSession((previous) => ({ ...previous, ...patch })); }
   function chooseStep(position: number) { updateSession({ currentStep: position }); setNotice(""); }
   function toggleStep(position: number) {
-    const complete = session.completedSteps.includes(position);
-    const completedSteps = complete ? session.completedSteps.filter((item) => item !== position) : [...session.completedSteps, position];
-    const next = orderedSteps.find((step) => !completedSteps.includes(step.position));
-    updateSession({ completedSteps, currentStep: next?.position ?? position });
+    setSession((previous) => withToggledStep(previous, orderedSteps, position));
   }
   function toggleIngredient(index: number) {
-    const checkedIngredients = session.checkedIngredients.includes(index)
-      ? session.checkedIngredients.filter((item) => item !== index)
-      : [...session.checkedIngredients, index];
-    updateSession({ checkedIngredients });
+    setSession((previous) => withToggledIngredient(previous, index));
   }
   function startTimer() {
     if (!activeStep) return;
     const duration = activeStep.duration_seconds ?? Number(customMinutes) * 60;
+    startTimerForStep(activeStep.position, duration);
+  }
+  function startTimerForStep(stepPosition: number, duration: number) {
     try {
-      updateSession({ timer: createRunningTimer(activeStep.position, duration, Date.now()) });
+      updateSession({ timer: createRunningTimer(stepPosition, duration, Date.now()) });
       setNow(Date.now());
       setNotice("");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Duração inválida."); }
   }
-  function pauseOrResumeTimer() {
+  function pauseOrResumeTimer(nowMs: number = Date.now()) {
     if (!session.timer) return;
-    updateSession({ timer: session.timer.endsAt === null ? resumeTimer(session.timer, Date.now()) : pauseTimer(session.timer, Date.now()) });
-    setNow(Date.now());
+    updateSession({ timer: session.timer.endsAt === null ? resumeTimer(session.timer, nowMs) : pauseTimer(session.timer, nowMs) });
+    setNow(nowMs);
   }
   function resetTimer() { updateSession({ timer: null }); setNow(Date.now()); }
   async function installApp() {
@@ -122,6 +134,60 @@ export function KitchenMode({ recipeId, title, ingredients, steps }: {
     setInstallPrompt(null);
   }
   const timerExpired = session.timer !== null && timerRemaining === 0;
+
+  const systemInstruction = useMemo(
+    () =>
+      buildKitchenSystemInstruction({
+        title,
+        description: description ?? null,
+        servings: servings ?? null,
+        ingredients,
+        steps: orderedSteps,
+      }),
+    [title, description, servings, ingredients, orderedSteps],
+  );
+
+  const voiceBridgeRef = useRef<KitchenVoiceBridge | null>(null);
+  const voiceBridge: KitchenVoiceBridge = {
+    title,
+    servings: servings ?? null,
+    ingredients,
+    steps: orderedSteps,
+    session,
+    timerRemainingSeconds: timerRemaining,
+    now,
+    actions: {
+      chooseStep,
+      toggleStepComplete: toggleStep,
+      toggleIngredient,
+      startTimer: startTimerForStep,
+      pauseOrResumeTimer,
+      resetTimer,
+      setNotice,
+    },
+  };
+  useEffect(() => { voiceBridgeRef.current = voiceBridge; });
+
+  const executeTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const bridge = voiceBridgeRef.current;
+    if (!bridge) return { success: false, error: "Modo cozinha ainda não carregou a receita." };
+    const output = executeKitchenTool(bridge, name, args, setActionLabel);
+    if (name === "stopVoiceGuidance") voiceApiRef.current?.requestDisconnect();
+    return output;
+  }, []);
+
+  const timerAnnouncedRef = useRef(false);
+  useEffect(() => {
+    if (!timerExpired) { timerAnnouncedRef.current = false; return; }
+    if (timerAnnouncedRef.current) return;
+    timerAnnouncedRef.current = true;
+    const timerStep = session.timer ? orderedSteps.find((step) => step.position === session.timer?.stepPosition) : null;
+    const stepNumber = timerStep ? orderedSteps.findIndex((step) => step.position === timerStep.position) + 1 : null;
+    voiceApiRef.current?.sendText(
+      `Aviso do sistema: ${stepNumber ? `o temporizador da etapa ${stepNumber}` : "o temporizador"} terminou. ` +
+      "Avise o usuário em voz alta e pergunte se ele quer seguir para a próxima etapa.",
+    );
+  }, [timerExpired, session.timer, orderedSteps]);
 
   return <section className="kitchen-mode" aria-labelledby="kitchen-mode-title">
     <div className="kitchen-heading">
@@ -152,6 +218,17 @@ export function KitchenMode({ recipeId, title, ingredients, steps }: {
         </ol>
       </div>
       <aside className="kitchen-side-column">
+        {getAccessToken && (
+          <VoiceAgentPanel
+            contextLabel="Preparo da receita"
+            systemInstruction={systemInstruction}
+            toolGroups={KITCHEN_TOOL_GROUPS}
+            executeTool={executeTool}
+            getAccessToken={getAccessToken}
+            thinkingLevel="low"
+            apiRef={voiceApiRef}
+          />
+        )}
         <section className="kitchen-panel" aria-label="Temporizador da etapa">
           <div className="kitchen-section-title"><h4>Temporizador</h4><span>{activeStep ? "Etapa " + (orderedSteps.findIndex((step) => step.position === activeStep.position) + 1) : "—"}</span></div>
           <p className="kitchen-timer-instruction">{activeStep?.instruction ?? "Selecione uma etapa para começar."}</p>
@@ -160,7 +237,7 @@ export function KitchenMode({ recipeId, title, ingredients, steps }: {
           {!session.timer && <label className="kitchen-custom-time">Minutos personalizados (quando necessário)<input type="number" min="0.0167" max="10080" step="any" value={customMinutes} onChange={(event) => setCustomMinutes(event.target.value)} /></label>}
           <div className="kitchen-timer-actions">
             {!session.timer ? <button type="button" onClick={startTimer} disabled={!activeStep}>Iniciar timer</button> : <>
-              <button type="button" onClick={pauseOrResumeTimer}>{session.timer.endsAt === null ? "Retomar" : "Pausar"}</button>
+              <button type="button" onClick={() => pauseOrResumeTimer()}>{session.timer.endsAt === null ? "Retomar" : "Pausar"}</button>
               <button type="button" className="secondary-button" onClick={resetTimer}>Zerar</button>
             </>}
           </div>

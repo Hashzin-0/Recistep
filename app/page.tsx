@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { startGoogleOAuth } from "@/lib/supabase/google-oauth";
 import { PortionScaler, ShoppingListPanel } from "@/components/recipe-planner";
 import { KitchenMode } from "@/components/kitchen-mode";
+import { VoiceAgentPanel, type VoiceControlApi } from "@/components/voice-agent-panel";
+import { defineToolGroup } from "@/lib/voice/function-tool";
+import { buildReviewSystemInstruction } from "@/lib/voice/prompts";
+import { RECIPE_EDIT_TOOLS, executeRecipeEditTool } from "@/lib/voice/recipe-tools";
+import type { ExecuteToolFn } from "@/lib/voice/live-session";
+import type { RecipeExtraction } from "@/lib/schemas/recipe";
+
+const REVIEW_TOOL_GROUPS = [defineToolGroup(RECIPE_EDIT_TOOLS)];
 
 type ImportFeedback =
   | { kind: "error"; message: string }
@@ -18,6 +26,10 @@ type IngredientDraft = {
   notes: string | null;
   source_evidence: string | null;
   confidence: number;
+  quantity_text?: string | null;
+  quantity_min?: number | null;
+  quantity_max?: number | null;
+  unit_normalized?: string | null;
 };
 
 type StepDraft = {
@@ -28,6 +40,9 @@ type StepDraft = {
   temperature_unit: "C" | "F" | null;
   source_evidence: string | null;
   confidence: number;
+  duration_text?: string | null;
+  duration_min_seconds?: number | null;
+  duration_max_seconds?: number | null;
 };
 
 type RecipeDraft = {
@@ -79,8 +94,37 @@ export default function HomePage() {
   const [importRecord, setImportRecord] = useState<ImportRecord | null>(null);
   const [transcript, setTranscript] = useState("");
   const [reviewDraft, setReviewDraft] = useState<RecipeDraft | null>(null);
+  const [streamDraft, setStreamDraft] = useState<RecipeDraft | null>(null);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
+  const reviewVoiceApiRef = useRef<VoiceControlApi | null>(null);
+  const reviewDraftRef = useRef(reviewDraft);
+  useEffect(() => { reviewDraftRef.current = reviewDraft; }, [reviewDraft]);
+
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    if (!supabase) return null;
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, [supabase]);
+
+  const reviewSystemInstruction = useMemo(
+    () => (reviewDraft ? buildReviewSystemInstruction(reviewDraft) : ""),
+    [reviewDraft],
+  );
+
+  const executeReviewTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const draft = reviewDraftRef.current;
+    if (!draft) return { success: false, error: "Não há receita em revisão agora." };
+    return executeRecipeEditTool(
+      {
+        draft: draft as RecipeExtraction,
+        actions: { commit: (next) => setReviewDraft(next) },
+      },
+      name,
+      args,
+      setActionLabel,
+    );
+  }, []);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -136,10 +180,96 @@ export default function HomePage() {
   }, [supabase, accessToken, activeImportId, importRecord?.status]);
 
   useEffect(() => {
+    if (!supabase || !accessToken || !activeImportId ||
+      !["queued", "processing"].includes(importRecord?.status ?? "")) return;
+
+    setStreamDraft(null);
+    let stopped = false;
+    const controller = new AbortController();
+
+    const parseBlock = (block: string) => {
+      let event = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) return;
+      let payload: unknown;
+      try { payload = JSON.parse(data); } catch { return; }
+      if (stopped) return;
+
+      if (event === "partial") {
+        setStreamDraft(payload as RecipeDraft);
+      } else if (event === "done") {
+        const draft = payload as RecipeDraft;
+        if (draft && (draft.title || draft.ingredients?.length || draft.steps?.length)) {
+          setImportRecord((previous) => previous ? {
+            ...previous,
+            status: "review_required",
+            recipe_draft: draft,
+            error_code: null,
+            error_message: null,
+          } : previous);
+        }
+        setStreamDraft(null);
+        controller.abort();
+      } else if (event === "error") {
+        const err = payload as { code?: string; message?: string; status?: string };
+        setImportRecord((previous) => previous ? {
+          ...previous,
+          status: (err.status as ImportRecord["status"]) ?? "failed",
+          error_code: err.code ?? null,
+          error_message: err.message ?? null,
+        } : previous);
+        setStreamDraft(null);
+        controller.abort();
+      } else if (event === "status") {
+        const st = payload as { status?: string };
+        if (st.status && !["queued", "processing"].includes(st.status)) {
+          setImportRecord((previous) => previous ? { ...previous, status: st.status as ImportRecord["status"] } : previous);
+        }
+      }
+    };
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/v1/imports/" + activeImportId + "/stream", {
+          headers: { Authorization: "Bearer " + accessToken },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body || stopped) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop() ?? "";
+          for (const block of blocks) if (block.trim()) parseBlock(block);
+        }
+      } catch {
+        // The stream is best-effort; status polling remains as a fallback.
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      controller.abort();
+      setStreamDraft(null);
+    };
+  }, [supabase, accessToken, activeImportId, importRecord?.status]);
+
+  useEffect(() => {
     if (importRecord?.status === "review_required" && importRecord.recipe_draft) {
       setReviewDraft(importRecord.recipe_draft);
+      setStreamDraft(null);
     } else if (importRecord?.status === "completed") {
       setReviewDraft(null);
+      setStreamDraft(null);
     }
   }, [importRecord?.id, importRecord?.status, importRecord?.recipe_draft]);
 
@@ -203,6 +333,7 @@ export default function HomePage() {
         recipe_id: body.data!.recipe_id,
         recipe_draft: reviewDraft,
       } : previous);
+      reviewVoiceApiRef.current?.disconnect();
       setFeedback({ kind: "info", message: body.data.already_confirmed ? "Esta receita já estava confirmada." : "Receita confirmada e salva com ingredientes e etapas." });
     } catch {
       setFeedback({ kind: "error", message: "Falha de conexão ao confirmar a receita." });
@@ -499,6 +630,41 @@ export default function HomePage() {
               {importRecord.error_message && ["failed", "source_content_required"].includes(importRecord.status) && (
                 <p className="field-hint">{importRecord.error_message}</p>
               )}
+              {["queued", "processing"].includes(importRecord.status) && streamDraft && (
+                <div className="recipe-draft stream-preview" aria-live="polite">
+                  <h4>{streamDraft.title || "Decifrando receita…"}</h4>
+                  {streamDraft.ingredients.length > 0 && (
+                    <>
+                      <span className="auth-label">INGREDIENTES ({streamDraft.ingredients.length})</span>
+                      <ul>
+                        {streamDraft.ingredients.map((ingredient, index) => (
+                          <li key={index}>
+                            {ingredient.quantity_text || (ingredient.quantity != null ? String(ingredient.quantity) : "")}
+                            {ingredient.unit ? ` ${ingredient.unit}` : ""} {ingredient.name}
+                            {ingredient.notes ? ` — ${ingredient.notes}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {streamDraft.steps.length > 0 && (
+                    <>
+                      <span className="auth-label">MODO DE PREPARO ({streamDraft.steps.length})</span>
+                      <ol>
+                        {streamDraft.steps.map((step) => (
+                          <li key={step.position}>
+                            {step.instruction}
+                            {step.duration_text ? ` (${step.duration_text})` : ""}
+                          </li>
+                        ))}
+                      </ol>
+                    </>
+                  )}
+                  {streamDraft.ingredients.length === 0 && streamDraft.steps.length === 0 && (
+                    <p className="field-hint">Lendo a fonte e montando a receita em tempo real…</p>
+                  )}
+                </div>
+              )}
               {(importRecord.status === "source_content_required" ||
                 (importRecord.status === "failed" && ["PROCESSING_FAILED", "GEMINI_PROCESSING_FAILED"].includes(importRecord.error_code ?? ""))) && (
                 <form className="transcript-form" onSubmit={handleTranscriptSubmit}>
@@ -523,6 +689,17 @@ export default function HomePage() {
                 <div className="recipe-draft">
                   <h4>Revise sua receita</h4>
                   <p className="field-hint">Os campos são editáveis. A receita só será salva como confirmada após você selecionar “Confirmar receita”. Quantidades e tempos ausentes continuam desconhecidos.</p>
+                  {reviewSystemInstruction && (
+                    <VoiceAgentPanel
+                      contextLabel="Edição da receita"
+                      systemInstruction={reviewSystemInstruction}
+                      toolGroups={REVIEW_TOOL_GROUPS}
+                      executeTool={executeReviewTool}
+                      getAccessToken={getAccessToken}
+                      thinkingLevel="low"
+                      apiRef={reviewVoiceApiRef}
+                    />
+                  )}
                   <label htmlFor="review-title">Nome da receita</label>
                   <input id="review-title" value={reviewDraft.title} maxLength={200} onChange={(event) => setReviewDraft({ ...reviewDraft, title: event.target.value })} required />
                   <label htmlFor="review-description">Descrição</label>
@@ -540,6 +717,13 @@ export default function HomePage() {
                           <div><label htmlFor={`ingredient-quantity-${index}`}>Quantidade</label><input id={`ingredient-quantity-${index}`} type="number" min="0.0001" step="any" value={ingredient.quantity ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, quantity: event.target.value === "" ? null : Number(event.target.value) } : item) })} /></div>
                           <div><label htmlFor={`ingredient-unit-${index}`}>Unidade</label><input id={`ingredient-unit-${index}`} value={ingredient.unit ?? ""} maxLength={80} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, unit: event.target.value || null } : item) })} /></div>
                         </div>
+                        {(ingredient.quantity_text || (ingredient.quantity_min != null && ingredient.quantity_max != null) || ingredient.unit_normalized) && (
+                          <p className="field-hint">
+                            {ingredient.quantity_text && `Como dito no vídeo: ${ingredient.quantity_text}`}
+                            {ingredient.quantity_min != null && ingredient.quantity_max != null && ` · Faixa: ${ingredient.quantity_min}–${ingredient.quantity_max}`}
+                            {ingredient.unit_normalized && ` · ${ingredient.unit_normalized}`}
+                          </p>
+                        )}
                         <label htmlFor={`ingredient-notes-${index}`}>Observações</label>
                         <input id={`ingredient-notes-${index}`} value={ingredient.notes ?? ""} maxLength={2000} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, notes: event.target.value || null } : item) })} />
                       </div>
@@ -553,6 +737,12 @@ export default function HomePage() {
                         <textarea id={`step-instruction-${step.position}`} value={step.instruction} maxLength={4000} rows={3} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, instruction: event.target.value } : item) })} required />
                         <label htmlFor={`step-duration-${step.position}`}>Duração em segundos (se conhecida)</label>
                         <input id={`step-duration-${step.position}`} type="number" min="0" max="86400" step="1" value={step.duration_seconds ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, duration_seconds: event.target.value === "" ? null : Number(event.target.value) } : item) })} />
+                        {(step.duration_text || (step.duration_min_seconds != null && step.duration_max_seconds != null)) && (
+                          <p className="field-hint">
+                            {step.duration_text && `Como dito no vídeo: ${step.duration_text}`}
+                            {step.duration_min_seconds != null && step.duration_max_seconds != null && ` · Faixa: ${step.duration_min_seconds}–${step.duration_max_seconds} s`}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -571,7 +761,7 @@ export default function HomePage() {
                   <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
                   <p className="field-hint">Identificador: {importRecord.recipe_id}</p>
                   <ShoppingListPanel recipeId={importRecord.recipe_id} accessToken={accessToken} />
-                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} />}
+                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} description={importRecord.recipe_draft.description} servings={importRecord.recipe_draft.servings} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} getAccessToken={getAccessToken} />}
                 </div>
               )}
             </section>

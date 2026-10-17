@@ -101,9 +101,27 @@ O login da interface usa `supabase.auth.signInWithOAuth({ provider: "google" })`
 
 O código não consegue ativar o provedor Google sem as credenciais OAuth do proprietário do projeto. Se o provedor estiver desabilitado ou as URLs não estiverem na allowlist, a interface mostrará uma mensagem de configuração.
 
+## Assistente de voz (Gemini Live)
+
+O Recistep inclui um agente de voz baseado na Gemini Live API, com dois contextos independentes de sessão:
+
+- **Edição da receita**: durante a revisão, o agente altera nome, descrição, porções, ingredientes e etapas por voz. Toda alteração passa pelo mesmo schema Zod da revisão e nada é salvo até o usuário tocar em “Confirmar receita”.
+- **Modo cozinha**: depois de confirmada, o agente lê a receita, conduz uma etapa por vez, confere ingredientes e cuida do temporizador, avisando quando o tempo termina. O progresso continua salvo somente no `localStorage` do dispositivo.
+
+Como funciona:
+
+- `POST /api/v1/voice/token` emite um token efêmero de sessão (um uso, validade máxima de 30 minutos) que autoriza o navegador a abrir o WebSocket `BidiGenerateContentConstrained`. O endpoint exige token Supabase válido e aplica rate limit de 10 emissões por 10 minutos por usuário; `GEMINI_API_KEY` não sai do servidor.
+- O áudio sai do microfone em PCM 16 kHz e o modelo responde em PCM 24 kHz. Não há captura de vídeo e o Recistep não grava áudio.
+- As declarações de função declaradas para o agente usam `behavior: "NON_BLOCKING"`, exigido pelo modelo `gemini-3.8-live-extended-thinking`.
+- Requer navegador com `getUserMedia` (Chrome, Edge ou Safari recente). Use fones de ouvido para evitar eco.
+
+Código: `lib/voice/` (configuração, sessão, áudio, ferramentas e prompts), `app/api/v1/voice/token/route.ts` (token) e `components/voice-agent-panel.tsx` (interface).
+
 ## Configuração de ambiente
 
 Copie `.env.example` para `.env.local` e configure valores reais. As variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` são públicas e usadas apenas pelo cliente de Auth; mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Configure também as opções de confirmação de e-mail e URLs de redirecionamento no Supabase Auth. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
+
+Para o assistente de voz, além de `GEMINI_API_KEY`, são opcionais: `GEMINI_LIVE_MODEL` (padrão `gemini-3.8-live-extended-thinking`), `GEMINI_LIVE_VOICE` (padrão `Puck`) e `GEMINI_LIVE_TOKEN_TTL_MINUTES` (padrão 30, limitado a 1 a 30).
 
 ## Migração Supabase
 
