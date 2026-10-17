@@ -2,6 +2,13 @@
 
 Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culinárias, estruturar ingredientes e etapas, ajustar porções e planejar o preparo.
 
+## Extração pública de Instagram e TikTok
+
+A extração usa os conectores TypeScript do próprio Recistep, sem serviço externo pago, token de scraper ou servidor Python separado. O TikTok é analisado pelo HTML público de reidratação e tenta obter o vídeo do CDN e, como alternativa, legendas WebVTT. O Instagram usa o oEmbed público para metadados/legenda e tenta encontrar uma URL de vídeo em metadados HTML públicos quando a página os disponibiliza.
+
+Esses métodos são best-effort: as plataformas podem exigir login, bloquear tráfego de servidor ou alterar seu HTML/CDN. Conteúdo privado, removido ou protegido não é contornado. Se o vídeo não estiver acessível, o fluxo existente pode usar uma legenda pública suficiente ou solicitar uma transcrição fornecida pelo usuário. Nenhuma API paga nem configuração adicional é necessária para ativar os conectores.
+
+
 ## Estado implementado nesta branch
 
 - Next.js App Router, React, TypeScript, Zod e Vitest.
@@ -11,7 +18,7 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 - Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
 - Workflow durável Inngest para análise de vídeos públicos do YouTube e extração de transcrições.
 - Conector YouTube oEmbed para metadados públicos e análise de vídeos públicos diretamente pela API Gemini. O Recistep não baixa o vídeo por conta própria; o recurso de URL do YouTube na API Gemini está em prévia e só aceita vídeos públicos.
-- Conectores de conteúdo Instagram e TikTok por métodos públicos permitidos: o Instagram usa o oEmbed oficial (legenda) porque o vídeo fica atrás de login; o TikTok tenta o CDN como best-effort e usa a trilha de legendas WebVTT pública como fonte confiável.
+- Conectores de conteúdo Instagram e TikTok por métodos públicos best-effort: Instagram usa o oEmbed para legenda/metadados e tenta localizar vídeo em metadados HTML públicos; TikTok analisa o HTML de reidratação, tenta o CDN e usa legendas WebVTT como alternativa.
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
 - Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
 - Interface de envio de transcrição fornecida pelo usuário e visualização do rascunho gerado, necessário quando não há conector autorizado para conteúdo.
@@ -88,7 +95,7 @@ O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, os CDNs recusam requisições sem login, então a receita é extraída da legenda pública (oEmbed); quando a legenda não traz a receita, o link é reportado como não analisável. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
+O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, o conector tenta primeiro obter metadados públicos de vídeo no HTML e valida a URL de mídia antes de usá-la; se a plataforma bloquear a página, usa a legenda pública do oEmbed quando suficiente. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
 
 ## Login com Google pelo Supabase
 

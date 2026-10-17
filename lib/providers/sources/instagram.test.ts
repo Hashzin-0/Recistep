@@ -19,6 +19,9 @@ function stubFetch(handlers: Array<{ match: string; respond: () => Response | Pr
     for (const handler of handlers) {
       if (url.includes(handler.match)) return handler.respond();
     }
+    if (url.includes("www.instagram.com/reel/")) {
+      return new Response("<html></html>", { status: 200 });
+    }
     throw new Error(`UNEXPECTED_REQUEST:${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -53,11 +56,11 @@ describe("instagramConnector", () => {
       content: { kind: "public_text", text: LONG_CAPTION },
     });
 
-    const oembedCall = fetchMock.mock.calls[0];
+    const oembedCall = fetchMock.mock.calls.find(([request]) => String(request).includes("/api/v1/oembed/"));
     expect(String(oembedCall?.[0])).toContain("/api/v1/oembed/?url=");
     expect(String(oembedCall?.[0])).toContain(encodeURIComponent(REEL_PATH));
-    // Instagram gates the page and GraphQL behind login, so no other endpoint is used.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The public page is attempted for a direct video URL, then oEmbed supplies the caption fallback.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("reports a link that cannot be analyzed when the caption carries no recipe", async () => {
@@ -128,6 +131,29 @@ describe("instagramConnector", () => {
     ]);
 
     await expect(instagramConnector.resolve(REEL_PATH)).rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
+  });
+
+
+  it("uses a public HTML video URL only when the CDN host is allowlisted and reachable", async () => {
+    const videoUrl = "https://scontent.cdninstagram.com/v/reel-video.mp4";
+    stubFetch([
+      { match: "www.instagram.com/reel/BAAB/", respond: () => new Response(
+        `<html><head><meta property="og:video" content="${videoUrl}"></head></html>`,
+        { status: 200 },
+      ) },
+      { match: "oembed", respond: () => oembedResponse() },
+      { match: "reel-video.mp4", respond: () => new Response(null, {
+        status: 206,
+        headers: { "Content-Range": "bytes 0-0/1000", "Content-Type": "video/mp4" },
+      }) },
+    ]);
+
+    const resolved = await instagramConnector.resolve(REEL_PATH);
+    expect(resolved.content).toEqual({
+      kind: "external_media",
+      mediaUrl: videoUrl,
+      mimeType: "video/mp4",
+    });
   });
 
   it("rejects hosts outside the Instagram page allowlist without any network access", async () => {
