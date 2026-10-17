@@ -10,9 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "next": "15.5.6",
-    "react": "19.1.1",
-    "react-dom": "19.1.1",
+    "next": "15.5.28",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
     "zod": "3.25.76",
     "inngest": "4.24.0",
     "server-only": "0.0.1",
