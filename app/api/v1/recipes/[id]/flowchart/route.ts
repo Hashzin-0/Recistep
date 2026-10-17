@@ -10,7 +10,7 @@ const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
 function sanitizeSvg(raw: string): string | null {
   const svg = raw.replace(/^```(?:svg|xml)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   if (!/^<svg\b[\s\S]*<\/svg>$/i.test(svg) || svg.length > 2_000_000) return null;
-  if (/<\s*(script|foreignObject|iframe|image|use|audio|video|style|link|!DOCTYPE|!ENTITY)\b/i.test(svg) || /\bon\w+\s*=/i.test(svg) || /(?:javascript:|data:|https?:|url\s*\()/i.test(svg)) return null;
+  if (/<\s*(script|foreignObject|iframe|image|use|audio|video|style|link|!DOCTYPE|!ENTITY)\b/i.test(svg) || /\bon\w+\s*=/i.test(svg) || /(?:javascript:|data:|https?:|url\s*\((?!\s*#[\w-]+\s*\)))/i.test(svg)) return null;
   const tags = new Set(["svg", "g", "rect", "text", "tspan", "line", "path", "circle", "ellipse", "polygon", "polyline", "defs", "marker"]);
   const attrs = new Set(["xmlns", "width", "height", "viewBox", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "fill", "stroke", "stroke-width", "font-size", "font-family", "font-weight", "text-anchor", "dominant-baseline", "transform", "opacity", "marker-end", "id", "refX", "refY", "markerWidth", "markerHeight", "orient"]);
   let valid = true;
