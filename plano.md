@@ -786,3 +786,29 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - Não foi executada uma confirmação com uma sessão real de usuário nesta etapa. Não alterar ou confirmar importações de usuários existentes como teste sem autorização explícita.
 - Após o deploy, confirmar manualmente uma receita real pelo botão da interface e verificar que o estado passa a `completed`, o registro em `recipes` tem `is_confirmed=true`, e ingredientes/etapas aparecem associados à receita.
 - A migration e a RPC estão no banco; o teste de integração com dados reais permanece pendente. Portanto, a etapa está implementada e validada por CI/build, mas a demonstração completa do vertical slice ainda não foi certificada.
+
+
+## Registro de execução — 2026-10-17 — Etapa 6: planejamento, lista de compras e deduplicação
+
+### Implementado
+- Ajuste determinístico de porções integrado à revisão; quantidades ausentes permanecem ausentes e não há conversão automática entre unidades.
+- Lista de compras persistida para receitas confirmadas, com agrupamento por nome normalizado e unidade compatível, estado comprado e rastreabilidade para receitas/ingredientes de origem.
+- API autenticada para criar, consultar e marcar itens comprados. A criação valida titularidade e estado confirmado das receitas em uma função PostgreSQL transacional.
+- Hash SHA-256 da URL canônica e fingerprint SHA-256 da receita normalizada, persistidos em importações/receitas/cache.
+- Cache compartilhado de rascunhos de fontes públicas elegíveis. Consulta em memória (LRU, TTL de 5 minutos) e Data Cache do Next.js (TTL de 1 hora) reduzem consultas repetidas ao Supabase; a URL já conhecida evita nova chamada Gemini. O worker também pode reutilizar rascunho por título normalizado exato não genérico, evitando nova análise quando o título da fonte coincide com o já armazenado.
+- O cache não guarda transcrições privadas fornecidas pelo usuário nem mídia bruta. O fingerprint de receita é usado para deduplicação e rastreabilidade; títulos semelhantes, mas não idênticos, não são tratados como iguais.
+- Migrations aplicadas ao Supabase Recistep; tabelas recipe_cache, shopping_lists e shopping_list_items verificadas. RLS ativo: cache restrito a service_role; listas e itens com políticas por titular.
+- Testes automatizados, typecheck e build executados no ambiente de implementação.
+
+### Validação observada
+- npm test: 33 testes passaram.
+- npm run typecheck: passou após corrigir o contrato de ingredientes do componente de porções.
+- npm run build: compilação e geração das rotas concluídas.
+- Advisor de segurança: o alerta de RLS sem políticas no cache foi resolvido; permanece apenas o aviso preexistente de proteção contra senhas vazadas desabilitada no Supabase Auth.
+- Não foi executado um fluxo e2e com sessão real, importação de receita real ou marcação de compra. O teste manual fica a cargo do usuário conforme combinado.
+
+### Arquivos principais
+- lib/recipe/fingerprint.ts, lib/server/recipe-cache.ts, lib/server/supabase-rest.ts
+- lib/inngest/functions.ts, app/api/v1/imports/route.ts
+- components/recipe-planner.tsx, app/api/v1/shopping-lists/**, app/page.tsx, app/globals.css
+- supabase/migrations/20261017120637_recipe_cache_and_shopping.sql e 20261017120831_recipe_cache_service_policy.sql
