@@ -105,7 +105,7 @@ export async function POST(
     });
 
     try {
-      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id, submission_id: randomUUID() } });
+      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id, user_id: user.id, submission_id: randomUUID() } });
     } catch {
       await updateSourceImport(id, {
         status: "failed",
