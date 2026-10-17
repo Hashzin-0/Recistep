@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { startGoogleOAuth } from "@/lib/supabase/google-oauth";
 import { PortionScaler, ShoppingListPanel } from "@/components/recipe-planner";
+import { KitchenMode } from "@/components/kitchen-mode";
 
 type ImportFeedback =
   | { kind: "error"; message: string }
@@ -80,6 +81,14 @@ export default function HomePage() {
   const [reviewDraft, setReviewDraft] = useState<RecipeDraft | null>(null);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+        // PWA installation is optional; the core application remains usable without a service worker.
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -562,6 +571,7 @@ export default function HomePage() {
                   <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
                   <p className="field-hint">Identificador: {importRecord.recipe_id}</p>
                   <ShoppingListPanel recipeId={importRecord.recipe_id} accessToken={accessToken} />
+                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} />}
                 </div>
               )}
             </section>
