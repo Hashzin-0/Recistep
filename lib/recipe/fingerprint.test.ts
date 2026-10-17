@@ -19,6 +19,8 @@ const recipe: RecipeExtraction = {
 describe("recipe fingerprints", () => {
   it("normalizes YouTube links that identify the same video", () => {
     expect(hashSourceUrl("https://www.youtube.com/watch?v=abc123&utm_source=x")).toBe(hashSourceUrl("https://youtu.be/abc123"));
+    expect(hashSourceUrl("https://youtube.com/watch?v=abc123")).toBe(hashSourceUrl("https://youtu.be/abc123"));
+    expect(hashSourceUrl("https://m.youtube.com/watch?v=abc123")).toBe(hashSourceUrl("https://youtu.be/abc123"));
   });
   it("normalizes whitespace and casing for source content hashes", () => {
     expect(hashSourceContent("  OVO   e Leite ")).toBe(hashSourceContent("ovo e leite"));
