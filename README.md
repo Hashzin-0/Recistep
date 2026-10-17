@@ -75,6 +75,18 @@ Requer autenticação e JSON `{"transcript":"..." }` com 80 a 80.000 caracteres.
 
 O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição e revisar o rascunho; salvar a receita normalizada e confirmar a revisão ainda não estão implementados.
 
+## Login com Google pelo Supabase
+
+O login da interface usa `supabase.auth.signInWithOAuth({ provider: "google" })` e retorna à origem atual da aplicação. Para ativá-lo no projeto Supabase:
+
+1. No Supabase Dashboard, abra **Authentication → Sign In / Providers → Google** e habilite Google.
+2. Cadastre no Google Cloud um OAuth Client ID do tipo **Web application**. Em **Authorized redirect URIs**, use o callback exibido na configuração do provedor Supabase (normalmente `https://<project-ref>.supabase.co/auth/v1/callback`).
+3. Insira o Client ID e o Client Secret no provedor Google do Supabase; não os coloque em variáveis `NEXT_PUBLIC_*`.
+4. Em **Authentication → URL Configuration → Redirect URLs**, permita a URL de produção do Recistep e `http://localhost:3000/**` para desenvolvimento. Adicione URLs de preview apenas se quiser testar OAuth em previews.
+5. Confirme que a Site URL do Supabase aponta para a origem de produção correta.
+
+O código não consegue ativar o provedor Google sem as credenciais OAuth do proprietário do projeto. Se o provedor estiver desabilitado ou as URLs não estiverem na allowlist, a interface mostrará uma mensagem de configuração.
+
 ## Configuração de ambiente
 
 Copie `.env.example` para `.env.local` e configure valores reais. As variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` são públicas e usadas apenas pelo cliente de Auth; mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Configure também as opções de confirmação de e-mail e URLs de redirecionamento no Supabase Auth. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
