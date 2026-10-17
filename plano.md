@@ -758,3 +758,8 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - A UI apresenta ingredientes e etapas do rascunho em `review_required`; persistência normalizada e ação de confirmação humana permanecem como próxima etapa.
 - O cliente browser usa apenas variáveis públicas Supabase. A service-role key continua exclusiva do servidor.
 - Essas alterações ainda não foram verificadas por uma execução de CI correspondente ao head atual.
+
+
+### Controles de throughput — 2026-10-16
+- Os workers Inngest agora limitam a concorrência e aplicam throttling durável por usuário (2 inícios/minuto com burst 1), enfileirando excesso em vez de descartar o trabalho.
+- Isso protege contra rajadas e limita a pressão simultânea sobre Gemini. Cotas rígidas por dia/conta e proteção anti-abuso na camada HTTP ainda precisam ser adicionadas antes de uma implantação pública.
