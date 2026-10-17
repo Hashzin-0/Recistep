@@ -123,7 +123,19 @@ async function generateStructuredRecipe(
 
   if (!response.ok) {
     if (response.status === 400) {
-      throw new GeminiExtractionError("GEMINI_REQUEST_REJECTED_400", false);
+      const providerError = await response.clone().json().catch(() => null) as {
+        error?: { message?: unknown };
+      } | null;
+      const detail = typeof providerError?.error?.message === "string"
+        ? providerError.error.message.toLowerCase()
+        : "";
+      const isVideoInput = parts.some((part) => "file_data" in part);
+      const videoUnavailable = isVideoInput &&
+        /youtube|video|public|private|unlisted|media|file_uri/.test(detail);
+      throw new GeminiExtractionError(
+        videoUnavailable ? "GEMINI_VIDEO_UNAVAILABLE" : "GEMINI_REQUEST_REJECTED_400",
+        false,
+      );
     }
     if (response.status === 401 || response.status === 403) {
       throw new GeminiExtractionError("GEMINI_AUTHENTICATION_FAILED", false);
