@@ -2,13 +2,11 @@
 
 Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culinárias, estruturar ingredientes e etapas, ajustar porções e planejar o preparo.
 
-## Motor opcional de mídia do Instagram e TikTok
+## Extração pública de Instagram e TikTok
 
-O Recistep pode usar o ator hospedado `coder2077/social-media-downloader` da Apify para resolver vídeos públicos sem manter um serviço Python próprio. Configure `APIFY_API_TOKEN` como variável server-only no projeto Vercel. Crie o token na sua conta Apify e não o exponha no navegador nem no repositório.
+A extração usa os conectores TypeScript do próprio Recistep, sem serviço externo pago, token de scraper ou servidor Python separado. O TikTok é analisado pelo HTML público de reidratação e tenta obter o vídeo do CDN e, como alternativa, legendas WebVTT. O Instagram usa o oEmbed público para metadados/legenda e tenta encontrar uma URL de vídeo em metadados HTML públicos quando a página os disponibiliza.
 
-O ator usa cobrança por resultado; confira o preço atual no [Apify Store](https://apify.com/coder2077/social-media-downloader) antes de ativar. O Recistep só usa esse caminho quando o token está configurado; sem ele ou quando a extração falha, os conectores existentes continuam como fallback. A URL de mídia retornada é validada antes de ser encaminhada ao Gemini.
-
-Não é necessário hospedar um serviço próprio. A integração depende da disponibilidade e das regras do provedor e só deve ser usada com conteúdo público que você tenha autorização para processar. Vídeos privados, removidos ou que exijam login podem falhar.
+Esses métodos são best-effort: as plataformas podem exigir login, bloquear tráfego de servidor ou alterar seu HTML/CDN. Conteúdo privado, removido ou protegido não é contornado. Se o vídeo não estiver acessível, o fluxo existente pode usar uma legenda pública suficiente ou solicitar uma transcrição fornecida pelo usuário. Nenhuma API paga nem configuração adicional é necessária para ativar os conectores.
 
 
 ## Estado implementado nesta branch
@@ -20,7 +18,7 @@ Não é necessário hospedar um serviço próprio. A integração depende da dis
 - Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
 - Workflow durável Inngest para análise de vídeos públicos do YouTube e extração de transcrições.
 - Conector YouTube oEmbed para metadados públicos e análise de vídeos públicos diretamente pela API Gemini. O Recistep não baixa o vídeo por conta própria; o recurso de URL do YouTube na API Gemini está em prévia e só aceita vídeos públicos.
-- Conectores de conteúdo Instagram e TikTok por métodos públicos permitidos: o Instagram usa o oEmbed oficial (legenda) porque o vídeo fica atrás de login; o TikTok tenta o CDN como best-effort e usa a trilha de legendas WebVTT pública como fonte confiável.
+- Conectores de conteúdo Instagram e TikTok por métodos públicos best-effort: Instagram usa o oEmbed para legenda/metadados e tenta localizar vídeo em metadados HTML públicos; TikTok analisa o HTML de reidratação, tenta o CDN e usa legendas WebVTT como alternativa.
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
 - Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
 - Interface de envio de transcrição fornecida pelo usuário e visualização do rascunho gerado, necessário quando não há conector autorizado para conteúdo.
@@ -97,7 +95,7 @@ O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, os CDNs recusam requisições sem login, então a receita é extraída da legenda pública (oEmbed); quando a legenda não traz a receita, o link é reportado como não analisável. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
+O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. Para Instagram, o conector tenta primeiro obter metadados públicos de vídeo no HTML e valida a URL de mídia antes de usá-la; se a plataforma bloquear a página, usa a legenda pública do oEmbed quando suficiente. Para TikTok, o CDN é tentado como best-effort e, se recusar, a fala é lida da trilha de legendas WebVTT pública. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
 
 ## Login com Google pelo Supabase
 

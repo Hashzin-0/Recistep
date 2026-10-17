@@ -7,9 +7,7 @@ import {
   resolveAllowlistedLocation,
 } from "@/lib/providers/sources/safe-fetch";
 import { isPlatformMediaHost, isPlatformPageHost } from "@/lib/providers/sources/platform-hosts";
-
-const PAGE_HOST = (hostname: string) => isPlatformPageHost("instagram", hostname);
-const MEDIA_HOST = (hostname: string) => isPlatformMediaHost("instagram", hostname);
+import { probeExternalMedia } from "@/lib/providers/media/remote-video";
 
 const OEMBED_ENDPOINT = "https://www.instagram.com/api/v1/oembed/";
 const POST_PATH = /^\/(?:[A-Za-z0-9._]+\/)?(?:p|tv|reels?|share\/[a-z]+)\/([A-Za-z0-9_-]+)/i;
@@ -27,57 +25,116 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
-/**
- * Instagram gates the post page, its embed and the `i.instagram.com` API behind
- * login for server requests (they return a JS shell or a login redirect), so no
- * media URL is obtainable without credentials. The public oEmbed endpoint still
- * answers with the caption, which recipe reels frequently carry in full.
- */
-async function fetchOEmbed(canonicalUrl: string): Promise<OEmbedPayload> {
-  const document = await fetchAllowlistedDocument({
-    url: `${OEMBED_ENDPOINT}?url=${encodeURIComponent(canonicalUrl)}`,
-    isAllowedHost: PAGE_HOST,
-  });
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#47;/g, "/")
+    .replace(/&#39;/g, "'");
+}
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(document.body);
-  } catch {
-    throw new Error("SOURCE_METADATA_UNAVAILABLE");
+function attribute(tag: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = tag.match(new RegExp(`\\b${escaped}\\s*=\\s*["']([^"']+)["']`, "i"));
+  return match?.[1] ? decodeHtml(match[1]) : null;
+}
+
+/** Extracts only public HTML metadata; the resulting URL is still allowlisted and probed. */
+function publicVideoUrl(html: string): string | null {
+  const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of metaTags) {
+    const key = (attribute(tag, "property") ?? attribute(tag, "name") ?? "").toLowerCase();
+    if (!["og:video", "og:video:secure_url", "twitter:player:stream"].includes(key)) continue;
+    const value = attribute(tag, "content");
+    if (value) return value;
   }
 
-  if (!payload || typeof payload !== "object") throw new Error("SOURCE_METADATA_UNAVAILABLE");
-  return payload as OEmbedPayload;
+  const patterns = [
+    /"(?:video_url|videoUrl|contentUrl)"\s*:\s*"((?:\\.|[^"\\])+)"/i,
+    /"(?:video_versions|videoVersions)"\s*:\s*\[\s*\{[\s\S]{0,1000}?"url"\s*:\s*"((?:\\.|[^"\\])+)"/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match?.[1]) continue;
+    try {
+      const decoded = JSON.parse(`"${match[1]}"`) as unknown;
+      if (typeof decoded === "string" && decoded.trim()) return decoded;
+    } catch {
+      // Try the next known public metadata shape.
+    }
+  }
+  return null;
 }
 
 export const instagramConnector: SourceConnector = {
   platform: "instagram",
 
   async resolve(sourceUrl: string): Promise<ResolvedSource> {
-    const source = parseAllowedHttpsUrl(sourceUrl, PAGE_HOST);
+    const source = parseAllowedHttpsUrl(sourceUrl, (hostname) => isPlatformPageHost("instagram", hostname));
     if (!source) throw new Error("UNSUPPORTED_SOURCE");
 
-    // Share and alias links do not carry the canonical post path; follow the
-    // allowlisted redirect so oEmbed receives a URL it can resolve.
     const canonical = POST_PATH.test(source.pathname)
       ? source
-      : new URL(await resolveAllowlistedLocation({ url: source.toString(), isAllowedHost: PAGE_HOST }));
-
+      : new URL(await resolveAllowlistedLocation({ url: source.toString(), isAllowedHost: (hostname) => isPlatformPageHost("instagram", hostname) }));
     if (!POST_PATH.test(canonical.pathname)) throw new Error("UNSUPPORTED_SOURCE");
 
-    const oembed = await fetchOEmbed(canonical.toString());
+    let pageHtml = "";
+    try {
+      const page = await fetchAllowlistedDocument({
+        url: canonical.toString(),
+        isAllowedHost: (hostname) => isPlatformPageHost("instagram", hostname),
+      });
+      pageHtml = page.body;
+    } catch {
+      // Instagram often returns a login shell or blocks server requests; oEmbed remains a fallback.
+    }
+
+    let oembed: OEmbedPayload;
+    try {
+      const document = await fetchAllowlistedDocument({
+        url: `${OEMBED_ENDPOINT}?url=${encodeURIComponent(canonical.toString())}`,
+        isAllowedHost: (hostname) => isPlatformPageHost("instagram", hostname),
+      });
+      const parsed: unknown = JSON.parse(document.body);
+      if (!parsed || typeof parsed !== "object") throw new Error("SOURCE_METADATA_UNAVAILABLE");
+      oembed = parsed as OEmbedPayload;
+    } catch (error) {
+      if (error instanceof Error && error.message === "SOURCE_PROVIDER_TEMPORARY_FAILURE") throw error;
+      throw new Error("SOURCE_METADATA_UNAVAILABLE");
+    }
+
     const caption = firstString(oembed.title) ?? "";
     const authorName = firstString(oembed.author_name);
     const thumbnail = firstString(oembed.thumbnail_url);
-
     const metadata = {
       title: (caption || (authorName ? `Instagram de ${authorName}` : "Post do Instagram")).slice(0, 200),
       author_name: authorName?.slice(0, 200) ?? null,
       provider_name: "Instagram",
       thumbnail_url: thumbnail
-        ? (parseAllowedHttpsUrl(thumbnail, MEDIA_HOST)?.toString() ?? null)
+        ? (parseAllowedHttpsUrl(thumbnail, (hostname) => isPlatformMediaHost("instagram", hostname))?.toString() ?? null)
         : null,
     };
+
+    const candidate = publicVideoUrl(pageHtml);
+    const mediaUrl = candidate
+      ? parseAllowedHttpsUrl(candidate, (hostname) => isPlatformMediaHost("instagram", hostname))
+      : null;
+    if (mediaUrl) {
+      try {
+        await probeExternalMedia({
+          mediaUrl: mediaUrl.toString(),
+          isAllowedHost: (hostname) => isPlatformMediaHost("instagram", hostname),
+          referer: "https://www.instagram.com/",
+        });
+        return {
+          metadata,
+          content: { kind: "external_media", mediaUrl: mediaUrl.toString(), mimeType: "video/mp4" },
+        };
+      } catch {
+        // A blocked/expired CDN URL must not prevent use of a public caption.
+      }
+    }
 
     if (caption.length < MIN_PUBLIC_TEXT_LENGTH) {
       return {

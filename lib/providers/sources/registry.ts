@@ -1,24 +1,14 @@
 import "server-only";
 import type { SupportedPlatform } from "@/lib/source-url";
-import type { SourceConnector, ResolvedSource } from "@/lib/providers/sources/source-connector";
+import type { SourceConnector } from "@/lib/providers/sources/source-connector";
 import { youtubeConnector } from "@/lib/providers/sources/youtube";
 import { tiktokConnector } from "@/lib/providers/sources/tiktok";
 import { instagramConnector } from "@/lib/providers/sources/instagram";
-import { resolveExternalMedia } from "@/lib/providers/sources/apify-media-extractor";
-
-async function resolveSocialSource(connector: SourceConnector, sourceUrl: string): Promise<ResolvedSource> {
-  // The hosted extractor is optional. Without a server-side token, preserve the existing path.
-  if (connector.platform === "instagram" || connector.platform === "tiktok") {
-    const extracted = await resolveExternalMedia(sourceUrl, connector.platform);
-    if (extracted) return extracted;
-  }
-  return connector.resolve(sourceUrl);
-}
 
 const connectors: Record<SupportedPlatform, SourceConnector> = {
   youtube: youtubeConnector,
-  tiktok: { platform: "tiktok", resolve: (sourceUrl) => resolveSocialSource(tiktokConnector, sourceUrl) },
-  instagram: { platform: "instagram", resolve: (sourceUrl) => resolveSocialSource(instagramConnector, sourceUrl) },
+  tiktok: tiktokConnector,
+  instagram: instagramConnector,
 };
 
 export function getSourceConnector(platform: SupportedPlatform): SourceConnector {
