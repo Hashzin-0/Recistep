@@ -52,8 +52,6 @@ export type DbRecipeRow = {
   source_import_id: string | null;
   title: string;
   description: string | null;
-  cover_image_url?: string | null;
-  preparation_flowchart_url?: string | null;
   source_url: string | null;
   cover_image_url?: string | null;
   preparation_flowchart_url?: string | null;
