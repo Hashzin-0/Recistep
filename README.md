@@ -20,7 +20,7 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 
 ## Desenvolvimento local
 
-Requer Node.js 20.9 ou superior.
+Requer Node.js 22 ou superior.
 
 ```bash
 npm install
