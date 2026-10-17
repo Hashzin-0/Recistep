@@ -37,10 +37,13 @@ async function lookup(kind: "url" | "content" | "title", hash: string): Promise<
 }
 export function findCachedRecipeByUrl(sourceUrl: string): Promise<CacheValue> { return lookup("url", hashSourceUrl(sourceUrl)); }
 export function findCachedRecipeByContent(content: string): Promise<CacheValue> { return lookup("content", hashSourceContent(content)); }
-export function findCachedRecipeByTitle(title: string): Promise<CacheValue> {
+export async function findCachedRecipeByTitle(title: string): Promise<CacheValue> {
   const normalized = normalizeRecipeTitle(title);
   if (normalized.length < 10 || ["receita", "recipe", "food", "shorts", "comida", "culinaria"].includes(normalized)) return Promise.resolve(null);
-  return lookup("title", normalized);
+  const cached = await lookup("title", normalized);
+  // Avoid treating two different recipes with a reused/generic video title as identical.
+  if (!cached || normalizeRecipeTitle(cached.recipe_draft.title) !== normalized) return null;
+  return cached;
 }
 export async function persistRecipeCache(input: {
   sourceUrl?: string | null; sourceContent?: string | null; recipe: RecipeExtraction; sourceMetadata?: Record<string, unknown> | null;
