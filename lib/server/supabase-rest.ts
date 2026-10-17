@@ -19,6 +19,9 @@ export type SourceImportRecord = {
   idempotency_key: string;
   status: ImportStatus;
   recipe_id?: string | null;
+  source_url_hash?: string | null;
+  source_content_hash?: string | null;
+  recipe_fingerprint?: string | null;
   source_metadata: Record<string, unknown> | null;
   source_transcript: string | null;
   recipe_draft: unknown | null;
@@ -114,6 +117,11 @@ export async function createSourceImport(input: {
   locale: string;
   servings_target: number | null;
   idempotency_key: string;
+  source_url_hash?: string;
+  status?: ImportStatus;
+  recipe_draft?: unknown | null;
+  source_metadata?: Record<string, unknown> | null;
+  recipe_fingerprint?: string | null;
 }): Promise<{ record: SourceImportRecord; created: boolean }> {
   try {
     const records = await supabaseRequest<SourceImportRecord[]>(
@@ -156,7 +164,7 @@ export async function updateSourceImport(
   id: string,
   patch: Partial<Pick<
     SourceImportRecord,
-    "status" | "source_metadata" | "source_transcript" | "recipe_draft" | "error_code" | "error_message" | "attempt_count"
+    "status" | "source_metadata" | "source_transcript" | "recipe_draft" | "error_code" | "error_message" | "attempt_count" | "source_url_hash" | "source_content_hash" | "recipe_fingerprint"
   >>,
 ): Promise<void> {
   const params = new URLSearchParams({ id: `eq.${id}` });
@@ -172,7 +180,7 @@ export async function getUserSourceImport(
   userId: string,
 ): Promise<SourceImportRecord | null> {
   const params = new URLSearchParams({
-    select: "id,user_id,source_url,platform,locale,servings_target,status,recipe_id,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
+    select: "id,user_id,source_url,platform,locale,servings_target,status,recipe_id,source_url_hash,source_content_hash,recipe_fingerprint,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
     id: `eq.${id}`,
     user_id: `eq.${userId}`,
     limit: "1",
@@ -183,6 +191,26 @@ export async function getUserSourceImport(
   return records[0] ?? null;
 }
 
+
+
+export async function findRecipeCacheEntry(
+  kind: "url" | "content" | "title" | "write",
+  value: string,
+): Promise<RecipeCacheDbEntry | null> {
+  if (kind === "write") {
+    await supabaseRequest<unknown>("recipe_cache", {
+      method: "POST", headers: { Prefer: "return=representation" }, body: value,
+    });
+    return null;
+  }
+  const params = new URLSearchParams({
+    select: "source_url_hash,source_content_hash,recipe_fingerprint,normalized_title,recipe_draft,source_metadata",
+    [kind === "url" ? "source_url_hash" : kind === "content" ? "source_content_hash" : "normalized_title"]: "eq." + value,
+    order: "updated_at.desc", limit: "1",
+  });
+  const rows = await supabaseRequest<RecipeCacheDbEntry[]>("recipe_cache?" + params.toString());
+  return rows[0] ?? null;
+}
 
 export async function confirmRecipeFromImport(input: {
   import_id: string;
