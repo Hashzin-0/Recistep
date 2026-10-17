@@ -164,4 +164,19 @@ describe("instagramConnector", () => {
       .rejects.toThrow("UNSUPPORTED_SOURCE");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("uses public HTML metadata when Instagram oEmbed is unavailable", async () => {
+    const htmlCaption = "Receita de pão caseiro: 500g de farinha, 10g de fermento, 300ml de água e sal. Misture, sove por dez minutos, deixe crescer por uma hora e asse até dourar.";
+    stubFetch([
+      { match: "www.instagram.com/reel/BAAB/", respond: () => new Response(
+        `<html><head><meta property="og:description" content="${htmlCaption}"></head></html>`,
+        { status: 200 },
+      ) },
+      { match: "oembed", respond: () => new Response("unavailable", { status: 404 }) },
+    ]);
+
+    const resolved = await instagramConnector.resolve(REEL_PATH);
+    expect(resolved.content).toEqual({ kind: "public_text", text: htmlCaption });
+    expect(resolved.metadata.title).toBe(htmlCaption.slice(0, 200));
+  });
 });
