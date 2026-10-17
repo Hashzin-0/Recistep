@@ -739,15 +739,15 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - `GET /api/v1/imports/{id}` com escopo de usuário.
 - `POST /api/v1/imports/{id}/transcript` para transcrição fornecida pelo usuário, com validação de tamanho e evento que carrega somente o ID.
 - Workflow Inngest com retries limitados para metadados públicos e extração de transcrição.
-- Conector YouTube oEmbed para metadados públicos, sem download de vídeo nem alegação de transcrição.
+- Conector YouTube oEmbed para metadados públicos e análise multimodal de URL pública diretamente via Gemini, sem download de vídeo pela aplicação.
 - Adaptador Gemini server-only com saída JSON estruturada, validação Zod posterior, evidências literais e preservação de valores desconhecidos como `null`.
 - A transcrição é removida do banco após extração bem-sucedida ou erro terminal.
 
 ### Limitações e bloqueios explícitos
 - Não foi encontrado um projeto Supabase dedicado ao Recistep entre os projetos conectados. A migração não foi aplicada a outro projeto.
 - Nenhuma credencial Supabase/Gemini/Inngest foi configurada ou exposta. A rota não funcionará até o ambiente ser configurado.
-- O conector de YouTube só obtém metadados públicos; não extrai áudio, vídeo ou legendas. TikTok e Instagram não têm conector de conteúdo implementado.
-- A extração Gemini só roda depois que uma transcrição válida é fornecida; o rascunho fica em `review_required` e não é salvo como receita confirmada automaticamente.
+- A análise de URL do YouTube usa o recurso de vídeo público da API Gemini (em prévia e sujeito a limites do provedor); só vídeos públicos são elegíveis. TikTok e Instagram ainda não têm conector de conteúdo implementado.
+- Para YouTube público, a extração Gemini pode analisar diretamente o vídeo; se isso não funcionar ou não houver chave Gemini, o fluxo solicita transcrição autorizada. O rascunho fica em `review_required` e não é salvo como receita confirmada automaticamente.
 - O arquivo de migração foi criado diretamente via API do GitHub, pois não havia checkout/CLI Supabase disponível para gerar o nome. Deve ser revisado e validado antes da aplicação.
 - Testes, typecheck, build, execução da migração e Supabase advisors **não foram executados** nesta sessão.
 
