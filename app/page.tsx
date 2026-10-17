@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { startGoogleOAuth } from "@/lib/supabase/google-oauth";
+import { PortionScaler, ShoppingListPanel } from "@/components/recipe-planner";
 
 type ImportFeedback =
   | { kind: "error"; message: string }
@@ -519,6 +520,7 @@ export default function HomePage() {
                   <textarea id="review-description" value={reviewDraft.description ?? ""} maxLength={2000} rows={2} onChange={(event) => setReviewDraft({ ...reviewDraft, description: event.target.value || null })} />
                   <label htmlFor="review-servings">Porções (se conhecidas)</label>
                   <input id="review-servings" type="number" min="0.1" max="500" step="any" value={reviewDraft.servings ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, servings: event.target.value === "" ? null : Number(event.target.value) })} />
+                  <PortionScaler servings={reviewDraft.servings} ingredients={reviewDraft.ingredients} onApply={(servings, ingredients) => setReviewDraft({ ...reviewDraft, servings, ingredients })} />
                   <strong>Ingredientes</strong>
                   <div className="review-list">
                     {reviewDraft.ingredients.map((ingredient, index) => (
@@ -559,6 +561,7 @@ export default function HomePage() {
                   <p className="field-hint">A receita e seus ingredientes e etapas foram persistidos no banco de dados.</p>
                   <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
                   <p className="field-hint">Identificador: {importRecord.recipe_id}</p>
+                  <ShoppingListPanel recipeId={importRecord.recipe_id} accessToken={accessToken} />
                 </div>
               )}
             </section>
