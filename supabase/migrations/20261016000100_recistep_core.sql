@@ -164,8 +164,9 @@ create policy "Users manage steps on own recipes"
     where r.id = recipe_id and r.user_id = (select auth.uid())
   ));
 
--- Do not grant broad anonymous access. Service-role operations are server-only.
-revoke all on public.source_imports, public.recipes, public.ingredients, public.preparation_steps from anon;
-grant select, delete on public.source_imports to authenticated;
+-- Import rows include temporary transcript text and are accessed only through
+-- authenticated server routes. Do not expose this table through the Data API.
+revoke all on public.source_imports from anon, authenticated;
+revoke all on public.recipes, public.ingredients, public.preparation_steps from anon;
 grant select, insert, update, delete on public.recipes to authenticated;
 grant select, insert, update, delete on public.ingredients, public.preparation_steps to authenticated;
