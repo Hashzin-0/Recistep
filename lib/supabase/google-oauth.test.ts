@@ -11,7 +11,7 @@ describe("startGoogleOAuth", () => {
 
     expect(signInWithOAuth).toHaveBeenCalledWith({
       provider: "google",
-      options: { redirectTo: "https://recistep.example" },
+      options: { redirectTo: "https://recistep.example", skipBrowserRedirect: true },
     });
   });
 
