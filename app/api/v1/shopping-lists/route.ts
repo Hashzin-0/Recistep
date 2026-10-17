@@ -1,3 +1,4 @@
+import { checkUserRateLimit } from "@/lib/server/rate-limit";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticateSupabaseAccessToken, createShoppingListFromRecipes, getShoppingListForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
@@ -11,6 +12,19 @@ export async function POST(request: Request) {
   let user: { id: string };
   try { user = await authenticateSupabaseAccessToken(token); }
   catch { return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 }); }
+  try {
+    const rateLimit = await checkUserRateLimit({ userId: user.id, route: "shopping-lists:create", limit: 10, windowSeconds: 600 });
+    if (!rateLimit.allowed) return NextResponse.json(
+      { error: { code: "RATE_LIMITED", message: "Você atingiu o limite de criação de listas. Aguarde antes de tentar novamente.", retryable: true } },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+    );
+  } catch {
+    return NextResponse.json(
+      { error: { code: "RATE_LIMIT_UNAVAILABLE", message: "Não foi possível verificar o limite de uso. Tente novamente em instantes.", retryable: true } },
+      { status: 503 },
+    );
+  }
+
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: { code: "INVALID_JSON" } }, { status: 400 }); }
   const parsed = schema.safeParse(body);
