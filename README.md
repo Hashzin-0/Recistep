@@ -77,7 +77,7 @@ A confirmação explícita usa:
 
 `POST /api/v1/imports/{id}/confirm`
 
-O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a receita, os ingredientes e as etapas e atualiza a importação para `completed`. Repetir a confirmação da mesma importação retorna a receita já criada em vez de duplicá-la. A migration `supabase/migrations/20261017000100_recipe_review_confirmation.sql` precisa estar aplicada no projeto Supabase antes de ativar este fluxo.
+O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a receita, os ingredientes e as etapas e atualiza a importação para `completed`. Repetir a confirmação da mesma importação retorna a receita já criada em vez de duplicá-la. A migration `supabase/migrations/20261017114621_recipe_review_confirmation.sql` precisa estar aplicada no projeto Supabase antes de ativar este fluxo.
 
 ### Estados relevantes
 
