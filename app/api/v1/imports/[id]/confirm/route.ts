@@ -1,3 +1,4 @@
+import { checkUserRateLimit } from "@/lib/server/rate-limit";
 import { NextResponse } from "next/server";
 import { recipeExtractionSchema } from "@/lib/schemas/recipe";
 import {
@@ -34,6 +35,19 @@ export async function POST(
     user = await authenticateSupabaseAccessToken(token);
   } catch {
     return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "A sessão é inválida ou expirou.", retryable: false } }, { status: 401 });
+  }
+
+  try {
+    const rateLimit = await checkUserRateLimit({ userId: user.id, route: "imports:confirm", limit: 10, windowSeconds: 600 });
+    if (!rateLimit.allowed) return NextResponse.json(
+      { error: { code: "RATE_LIMITED", message: "Você atingiu o limite de confirmações. Aguarde antes de tentar novamente.", retryable: true } },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+    );
+  } catch {
+    return NextResponse.json(
+      { error: { code: "RATE_LIMIT_UNAVAILABLE", message: "Não foi possível verificar o limite de uso. Tente novamente em instantes.", retryable: true } },
+      { status: 503 },
+    );
   }
 
   const { id } = await context.params;
