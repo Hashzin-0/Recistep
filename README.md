@@ -65,6 +65,20 @@ Requer autenticação e retorna apenas o registro pertencente ao usuário autent
 
 Requer autenticação e JSON `{"transcript":"..." }` com 80 a 80.000 caracteres. A transcrição é guardada temporariamente no banco para o worker; após extração bem-sucedida ou erro terminal, é apagada. O evento Inngest contém apenas o ID, não o texto da transcrição.
 
+### Revisar e confirmar uma receita
+
+Quando uma importação chega ao estado `review_required`, o rascunho pode ser editado e salvo:
+
+`PATCH /api/v1/imports/{id}/review`
+
+O corpo é a receita estruturada completa e deve passar pelo schema Zod estrito. O endpoint exige token Supabase válido, titularidade da importação e estado `review_required`.
+
+A confirmação explícita usa:
+
+`POST /api/v1/imports/{id}/confirm`
+
+O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a receita, os ingredientes e as etapas e atualiza a importação para `completed`. Repetir a confirmação da mesma importação retorna a receita já criada em vez de duplicá-la. A migration `supabase/migrations/20261017114621_recipe_review_confirmation.sql` precisa estar aplicada no projeto Supabase antes de ativar este fluxo.
+
 ### Estados relevantes
 
 - `queued`: registro persistido e evento agendado.

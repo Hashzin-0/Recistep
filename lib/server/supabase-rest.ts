@@ -18,6 +18,7 @@ export type SourceImportRecord = {
   servings_target: number | null;
   idempotency_key: string;
   status: ImportStatus;
+  recipe_id?: string | null;
   source_metadata: Record<string, unknown> | null;
   source_transcript: string | null;
   recipe_draft: unknown | null;
@@ -171,7 +172,7 @@ export async function getUserSourceImport(
   userId: string,
 ): Promise<SourceImportRecord | null> {
   const params = new URLSearchParams({
-    select: "id,user_id,source_url,platform,locale,servings_target,status,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
+    select: "id,user_id,source_url,platform,locale,servings_target,status,recipe_id,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
     id: `eq.${id}`,
     user_id: `eq.${userId}`,
     limit: "1",
@@ -180,4 +181,27 @@ export async function getUserSourceImport(
     `source_imports?${params.toString()}`,
   );
   return records[0] ?? null;
+}
+
+
+export async function confirmRecipeFromImport(input: {
+  import_id: string;
+  user_id: string;
+  recipe: unknown;
+}): Promise<{ recipe_id: string; already_confirmed: boolean }> {
+  const result = await supabaseRequest<{ recipe_id: string; already_confirmed: boolean } | Array<{ recipe_id: string; already_confirmed: boolean }>>(
+    "rpc/confirm_recipe_from_import",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        p_import_id: input.import_id,
+        p_user_id: input.user_id,
+        p_recipe: input.recipe,
+      }),
+    },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.recipe_id !== "string") throw new Error("RECIPE_CONFIRMATION_EMPTY");
+  return row;
 }

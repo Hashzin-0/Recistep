@@ -9,17 +9,41 @@ type ImportFeedback =
   | { kind: "info"; message: string }
   | null;
 
+type IngredientDraft = {
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  source_evidence: string | null;
+  confidence: number;
+};
+
+type StepDraft = {
+  position: number;
+  instruction: string;
+  duration_seconds: number | null;
+  temperature_value: number | null;
+  temperature_unit: "C" | "F" | null;
+  source_evidence: string | null;
+  confidence: number;
+};
+
 type RecipeDraft = {
-  title?: string;
-  ingredients?: Array<{ name: string; quantity: number | null; unit: string | null; notes: string | null }>;
-  steps?: Array<{ position: number; instruction: string; duration_seconds: number | null }>;
-  uncertainties?: string[];
-  warnings?: string[];
+  title: string;
+  description: string | null;
+  source_language: string | null;
+  servings: number | null;
+  timings: { prep_seconds: number | null; cook_seconds: number | null; total_seconds: number | null };
+  ingredients: IngredientDraft[];
+  steps: StepDraft[];
+  uncertainties: string[];
+  warnings: string[];
 };
 
 type ImportRecord = {
   id: string;
   status: string;
+  recipe_id?: string | null;
   error_message?: string | null;
   error_code?: string | null;
   source_metadata?: { title?: string; author_name?: string | null } | null;
@@ -52,6 +76,9 @@ export default function HomePage() {
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [importRecord, setImportRecord] = useState<ImportRecord | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [reviewDraft, setReviewDraft] = useState<RecipeDraft | null>(null);
+  const [isSavingReview, setIsSavingReview] = useState(false);
+  const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -97,6 +124,82 @@ export default function HomePage() {
       window.clearInterval(timer);
     };
   }, [supabase, accessToken, activeImportId, importRecord?.status]);
+
+  useEffect(() => {
+    if (importRecord?.status === "review_required" && importRecord.recipe_draft) {
+      setReviewDraft(importRecord.recipe_draft);
+    } else if (importRecord?.status === "completed") {
+      setReviewDraft(null);
+    }
+  }, [importRecord?.id, importRecord?.status, importRecord?.recipe_draft]);
+
+  async function saveRecipeReview() {
+    if (!supabase || !activeImportId || !reviewDraft) return;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      setFeedback({ kind: "error", message: "Entre novamente para salvar a revisão." });
+      return;
+    }
+    setIsSavingReview(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/v1/imports/" + activeImportId + "/review", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(reviewDraft),
+      });
+      const body = await response.json() as { data?: { recipe_draft: RecipeDraft }; error?: { message?: string } };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível salvar a revisão." });
+        return;
+      }
+      setImportRecord((previous) => previous ? { ...previous, recipe_draft: body.data!.recipe_draft } : previous);
+      setFeedback({ kind: "info", message: "Revisão salva. A receita ainda não foi confirmada." });
+    } catch {
+      setFeedback({ kind: "error", message: "Falha de conexão ao salvar a revisão." });
+    } finally {
+      setIsSavingReview(false);
+    }
+  }
+
+  async function confirmRecipe() {
+    if (!supabase || !activeImportId || !reviewDraft) return;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      setFeedback({ kind: "error", message: "Entre novamente para confirmar a receita." });
+      return;
+    }
+    setIsConfirmingRecipe(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/v1/imports/" + activeImportId + "/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(reviewDraft),
+      });
+      const body = await response.json() as {
+        data?: { recipe_id: string; status: string; already_confirmed?: boolean };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível confirmar a receita." });
+        return;
+      }
+      setImportRecord((previous) => previous ? {
+        ...previous,
+        status: "completed",
+        recipe_id: body.data!.recipe_id,
+        recipe_draft: reviewDraft,
+      } : previous);
+      setFeedback({ kind: "info", message: body.data.already_confirmed ? "Esta receita já estava confirmada." : "Receita confirmada e salva com ingredientes e etapas." });
+    } catch {
+      setFeedback({ kind: "error", message: "Falha de conexão ao confirmar a receita." });
+    } finally {
+      setIsConfirmingRecipe(false);
+    }
+  }
 
   async function handleGoogleSignIn() {
     if (!supabase) {
@@ -406,30 +509,56 @@ export default function HomePage() {
                   </button>
                 </form>
               )}
-              {importRecord.status === "review_required" && importRecord.recipe_draft && (
+              {importRecord.status === "review_required" && reviewDraft && (
                 <div className="recipe-draft">
-                  <h4>{importRecord.recipe_draft.title ?? "Rascunho de receita"}</h4>
-                  <p className="field-hint">Rascunho gerado por IA. Revise os campos antes de considerar a receita confirmada.</p>
+                  <h4>Revise sua receita</h4>
+                  <p className="field-hint">Os campos são editáveis. A receita só será salva como confirmada após você selecionar “Confirmar receita”. Quantidades e tempos ausentes continuam desconhecidos.</p>
+                  <label htmlFor="review-title">Nome da receita</label>
+                  <input id="review-title" value={reviewDraft.title} maxLength={200} onChange={(event) => setReviewDraft({ ...reviewDraft, title: event.target.value })} required />
+                  <label htmlFor="review-description">Descrição</label>
+                  <textarea id="review-description" value={reviewDraft.description ?? ""} maxLength={2000} rows={2} onChange={(event) => setReviewDraft({ ...reviewDraft, description: event.target.value || null })} />
+                  <label htmlFor="review-servings">Porções (se conhecidas)</label>
+                  <input id="review-servings" type="number" min="0.1" max="500" step="any" value={reviewDraft.servings ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, servings: event.target.value === "" ? null : Number(event.target.value) })} />
                   <strong>Ingredientes</strong>
-                  <ul>
-                    {(importRecord.recipe_draft.ingredients ?? []).map((ingredient, index) => (
-                      <li key={index}>
-                        {ingredient.name}
-                        {ingredient.quantity !== null && ingredient.quantity !== undefined ? " — " + ingredient.quantity : ""}
-                        {ingredient.unit ? " " + ingredient.unit : ""}
-                        {ingredient.notes ? " (" + ingredient.notes + ")" : ""}
-                      </li>
+                  <div className="review-list">
+                    {reviewDraft.ingredients.map((ingredient, index) => (
+                      <div className="review-item" key={index}>
+                        <label htmlFor={`ingredient-name-${index}`}>Ingrediente {index + 1}</label>
+                        <input id={`ingredient-name-${index}`} value={ingredient.name} maxLength={200} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, name: event.target.value } : item) })} required />
+                        <div className="review-fields-row">
+                          <div><label htmlFor={`ingredient-quantity-${index}`}>Quantidade</label><input id={`ingredient-quantity-${index}`} type="number" min="0.0001" step="any" value={ingredient.quantity ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, quantity: event.target.value === "" ? null : Number(event.target.value) } : item) })} /></div>
+                          <div><label htmlFor={`ingredient-unit-${index}`}>Unidade</label><input id={`ingredient-unit-${index}`} value={ingredient.unit ?? ""} maxLength={80} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, unit: event.target.value || null } : item) })} /></div>
+                        </div>
+                        <label htmlFor={`ingredient-notes-${index}`}>Observações</label>
+                        <input id={`ingredient-notes-${index}`} value={ingredient.notes ?? ""} maxLength={2000} onChange={(event) => setReviewDraft({ ...reviewDraft, ingredients: reviewDraft.ingredients.map((item, i) => i === index ? { ...item, notes: event.target.value || null } : item) })} />
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                   <strong>Etapas</strong>
-                  <ol>
-                    {(importRecord.recipe_draft.steps ?? []).slice().sort((a, b) => a.position - b.position).map((step) => (
-                      <li key={step.position}>{step.instruction}</li>
+                  <div className="review-list">
+                    {reviewDraft.steps.slice().sort((a, b) => a.position - b.position).map((step, index) => (
+                      <div className="review-item" key={step.position}>
+                        <label htmlFor={`step-instruction-${step.position}`}>Etapa {index + 1}</label>
+                        <textarea id={`step-instruction-${step.position}`} value={step.instruction} maxLength={4000} rows={3} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, instruction: event.target.value } : item) })} required />
+                        <label htmlFor={`step-duration-${step.position}`}>Duração em segundos (se conhecida)</label>
+                        <input id={`step-duration-${step.position}`} type="number" min="0" max="86400" step="1" value={step.duration_seconds ?? ""} onChange={(event) => setReviewDraft({ ...reviewDraft, steps: reviewDraft.steps.map((item) => item.position === step.position ? { ...item, duration_seconds: event.target.value === "" ? null : Number(event.target.value) } : item) })} />
+                      </div>
                     ))}
-                  </ol>
-                  {(importRecord.recipe_draft.uncertainties ?? []).length > 0 && (
-                    <p className="field-hint">Pontos incertos: {importRecord.recipe_draft.uncertainties?.join(" · ")}</p>
-                  )}
+                  </div>
+                  <div className="review-actions">
+                    <button className="auth-secondary-button" type="button" onClick={saveRecipeReview} disabled={isSavingReview || isConfirmingRecipe}>{isSavingReview ? "Salvando…" : "Salvar revisão"}</button>
+                    <button className="import-button" type="button" onClick={confirmRecipe} disabled={isSavingReview || isConfirmingRecipe}>{isConfirmingRecipe ? "Confirmando…" : "Confirmar receita"}</button>
+                  </div>
+                  {reviewDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {reviewDraft.uncertainties.join(" · ")}</p>}
+                  {reviewDraft.warnings.length > 0 && <p className="field-hint">Avisos: {reviewDraft.warnings.join(" · ")}</p>}
+                </div>
+              )}
+              {importRecord.status === "completed" && importRecord.recipe_id && (
+                <div className="recipe-draft">
+                  <h4>Receita confirmada</h4>
+                  <p className="field-hint">A receita e seus ingredientes e etapas foram persistidos no banco de dados.</p>
+                  <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
+                  <p className="field-hint">Identificador: {importRecord.recipe_id}</p>
                 </div>
               )}
             </section>

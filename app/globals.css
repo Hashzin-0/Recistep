@@ -266,3 +266,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   outline-color: #d5f06d;
 }
 ::selection { background: #526b42; color: #fff; }
+
+
+/* Recipe review: accessible, editable fields that inherit the global dark theme. */
+.recipe-draft { display: grid; gap: 10px; }
+.recipe-draft > label, .review-item > label { display: block; margin-top: 4px; color: #d7dfcf; font-size: 0.84rem; }
+.recipe-draft > input, .recipe-draft > textarea,
+.review-item input, .review-item textarea {
+  width: 100%; min-width: 0; border: 1px solid #343e30; border-radius: 10px;
+  padding: 10px 12px; background: #0c100c; color: #edf1e7; font: inherit;
+}
+.recipe-draft > input:focus-visible, .recipe-draft > textarea:focus-visible,
+.review-item input:focus-visible, .review-item textarea:focus-visible {
+  outline: 2px solid #d5f06d; outline-offset: 2px;
+}
+.review-list { display: grid; gap: 10px; }
+.review-item { display: grid; gap: 8px; padding: 12px; border: 1px solid #30392d; border-radius: 12px; background: #101510; }
+.review-fields-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.review-fields-row > div { min-width: 0; display: grid; gap: 6px; }
+.review-fields-row label { color: #a0aa9a; font-size: 0.78rem; }
+.review-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.review-actions button { flex: 1 1 160px; min-height: 44px; }
+@media (max-width: 520px) {
+  .review-fields-row { grid-template-columns: minmax(0, 1fr); }
+  .review-actions { flex-direction: column; }
+  .review-actions button { width: 100%; }
+}
