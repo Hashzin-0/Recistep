@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recipeExtractionSchema } from "@/lib/schemas/recipe";
+import { fingerprintRecipe } from "@/lib/recipe/fingerprint";
 import {
   authenticateSupabaseAccessToken,
   getSupabaseConfig,
@@ -68,7 +69,7 @@ export async function PATCH(
       return NextResponse.json({ error: { code: "IMPORT_NOT_READY_FOR_REVIEW", message: "Esta importação não está aguardando revisão.", retryable: false } }, { status: 409 });
     }
 
-    await updateSourceImport(id, { recipe_draft: parsed.data });
+    await updateSourceImport(id, { recipe_draft: parsed.data, recipe_fingerprint: fingerprintRecipe(parsed.data) });
     return NextResponse.json({ data: { id, status: "review_required", recipe_draft: parsed.data } });
   } catch {
     return NextResponse.json({ error: { code: "PERSISTENCE_UNAVAILABLE", message: "Não foi possível salvar a revisão agora.", retryable: true } }, { status: 503 });
