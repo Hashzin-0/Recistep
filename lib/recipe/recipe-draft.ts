@@ -55,6 +55,8 @@ export type DbRecipeRow = {
   cover_image_url?: string | null;
   preparation_flowchart_url?: string | null;
   source_url: string | null;
+  cover_image_url?: string | null;
+  preparation_flowchart_url?: string | null;
   source_language: string | null;
   servings: number | null;
   prep_seconds: number | null;
@@ -178,6 +180,8 @@ export type RecipeApiData = {
   source_url: string | null;
   created_at: string;
   updated_at: string;
+  cover_image_url: string | null;
+  preparation_flowchart_url: string | null;
   recipe: RecipeExtraction;
 };
 
@@ -187,6 +191,8 @@ export function recipeApiData(detail: RecipeDetail): RecipeApiData {
     source_url: detail.recipe.source_url,
     created_at: detail.recipe.created_at,
     updated_at: detail.recipe.updated_at,
+    cover_image_url: detail.recipe.cover_image_url ?? null,
+    preparation_flowchart_url: detail.recipe.preparation_flowchart_url ?? null,
     recipe: draftFromDbRecipe(detail.recipe, detail.ingredients, detail.steps),
   };
 }
