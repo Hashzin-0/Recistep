@@ -56,7 +56,7 @@ describe("instagramConnector", () => {
       content: { kind: "public_text", text: LONG_CAPTION },
     });
 
-    const oembedCall = fetchMock.mock.calls[0];
+    const oembedCall = fetchMock.mock.calls.find(([request]) => String(request).includes("/api/v1/oembed/"));
     expect(String(oembedCall?.[0])).toContain("/api/v1/oembed/?url=");
     expect(String(oembedCall?.[0])).toContain(encodeURIComponent(REEL_PATH));
     // The public page is attempted for a direct video URL, then oEmbed supplies the caption fallback.
