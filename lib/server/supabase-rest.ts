@@ -276,7 +276,7 @@ type RecipeDetailRow = DbRecipeRow & {
   preparation_steps: DbStepRow[] | null;
 };
 
-const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,created_at,updated_at";
+const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,cover_image_url,preparation_flowchart_url,created_at,updated_at";
 
 export async function listRecipesForUser(userId: string): Promise<RecipeSummary[]> {
   const params = new URLSearchParams({
