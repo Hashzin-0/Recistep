@@ -67,6 +67,28 @@ function publicVideoUrl(html: string): string | null {
   return null;
 }
 
+function extractJsonObject(source: string, start: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
 function publicCaptionFromHtml(html: string): string | null {
   const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
   for (const tag of metaTags) {
@@ -77,10 +99,13 @@ function publicCaptionFromHtml(html: string): string | null {
   }
 
   // Older public Instagram pages expose the same caption in shared_data JSON.
-  const sharedData = html.match(/(?:window\.)?_sharedData\s*=\s*(\{[\s\S]*?\})\s*;?/);
-  if (sharedData?.[1]) {
+  const marker = html.indexOf("_sharedData");
+  const assignment = marker >= 0 ? html.indexOf("=", marker) : -1;
+  const jsonStart = assignment >= 0 ? html.indexOf("{", assignment) : -1;
+  const sharedData = jsonStart >= 0 ? extractJsonObject(html, jsonStart) : null;
+  if (sharedData) {
     try {
-      const parsed: unknown = JSON.parse(sharedData[1]);
+      const parsed: unknown = JSON.parse(sharedData);
       if (parsed && typeof parsed === "object") {
         const entryData = (parsed as Record<string, unknown>).entry_data;
         if (entryData && typeof entryData === "object") {
