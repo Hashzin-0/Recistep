@@ -486,3 +486,59 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .header-user > span { max-width: 110px; }
   .topbar-note { display: none; }
 }
+
+
+/* Recipe enhancements: layered ingredients, media and accessible ratings. */
+.recipe-cover-image {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 1.25rem;
+  margin: 1rem 0;
+}
+.recipe-media-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  margin: 1.25rem 0;
+}
+.recipe-upload-label { position: relative; overflow: hidden; cursor: pointer; }
+.recipe-upload-label input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.recipe-rating, .recipe-flowchart, .ingredient-layer {
+  padding: 1rem;
+  border: 1px solid var(--border, rgba(120,120,120,.22));
+  border-radius: 1rem;
+  margin: 1rem 0;
+}
+.recipe-rating-stars { display: flex; gap: .35rem; margin-top: .5rem; }
+.recipe-rating-stars button {
+  border: 0;
+  background: transparent;
+  color: #d99b22;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: .2rem;
+}
+.recipe-rating-stars button:disabled { cursor: wait; opacity: .6; }
+.recipe-rating-stars button:focus-visible, .recipe-upload-label:focus-within {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.recipe-flowchart img { display: block; width: 100%; height: auto; margin-top: .75rem; border-radius: .75rem; }
+.ingredient-layer h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.ingredient-icon { display: inline-flex; width: 1.8rem; justify-content: center; margin-right: .25rem; }
+@media (max-width: 640px) {
+  .recipe-media-tools { align-items: stretch; flex-direction: column; }
+  .recipe-media-tools > * { width: 100%; }
+  .recipe-cover-image { max-height: 300px; }
+}
