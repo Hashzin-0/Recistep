@@ -185,7 +185,7 @@ Na página de detalhe da receita:
 
 ### Ativação das mudanças
 
-Antes de usar os recursos, aplique as migrations na ordem normal do projeto, incluindo:
+As migrations abaixo estão versionadas no repositório e já foram aplicadas ao projeto Supabase Recistep conectado:
 - `supabase/migrations/20261017170000_recipe_layers_media_ratings.sql`
 - `supabase/migrations/20261017170100_recipe_confirmation_layers.sql`
 
