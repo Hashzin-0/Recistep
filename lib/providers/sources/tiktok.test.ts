@@ -222,4 +222,28 @@ describe("tiktokConnector", () => {
       .rejects.toThrow("UNSUPPORTED_SOURCE");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("extracts a public video from the legacy SIGI_STATE payload used by upstream scrapers", async () => {
+    const legacyItem = {
+      id: "123",
+      desc: "Receita de panqueca com ovos, leite e farinha. Misture os ingredientes e doure dos dois lados em frigideira quente.",
+      author: { nickname: "Cozinha antiga", uniqueId: "cozinhaantiga" },
+      video: { cover: COVER_URL, playAddr: VIDEO_URL },
+    };
+    const html = `<html><body><script id="SIGI_STATE" type="application/json">${JSON.stringify({
+      ItemModule: { "123": legacyItem },
+    })}</script></body></html>`;
+
+    stubFetch([
+      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(html, { status: 200 }) },
+      { match: "tiktokcdn", respond: () => new Response(null, {
+        status: 206,
+        headers: { "Content-Range": "bytes 0-0/1000" },
+      }) },
+    ]);
+
+    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
+    expect(resolved.metadata.author_name).toBe("Cozinha antiga");
+    expect(resolved.content).toEqual({ kind: "external_media", mediaUrl: VIDEO_URL, mimeType: "video/mp4" });
+  });
 });
