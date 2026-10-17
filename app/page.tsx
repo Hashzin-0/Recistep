@@ -535,17 +535,7 @@ export default function HomePage() {
                 <div className="recipe-draft">
                   <h4>Revise sua receita</h4>
                   <p className="field-hint">Os campos são editáveis. A receita só será salva como confirmada após você selecionar “Confirmar receita”. Quantidades e tempos ausentes continuam desconhecidos.</p>
-                  {reviewSystemInstruction && (
-                    <VoiceAssistantHud
-                      contextLabel="Edição da receita"
-                      systemInstruction={reviewSystemInstruction}
-                      toolGroups={REVIEW_TOOL_GROUPS}
-                      executeTool={executeReviewTool}
-                      getAccessToken={getAccessToken}
-                      thinkingLevel="low"
-                      apiRef={reviewVoiceApiRef}
-                    />
-                  )}
+                  {/* O assistente de voz fica fixo na hero, não dentro do rascunho. */}
                   <RecipeEditor value={reviewDraft} onChange={setReviewDraft} idPrefix="review" />
                   <div className="review-actions">
                     <button className="auth-secondary-button" type="button" onClick={saveRecipeReview} disabled={isSavingReview || isConfirmingRecipe}>{isSavingReview ? "Salvando…" : "Salvar revisão"}</button>
@@ -576,6 +566,15 @@ export default function HomePage() {
           </div>
           <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
         </div>
+        <VoiceAssistantHud
+          contextLabel={reviewDraft ? "Edição da receita" : "Assistente de cozinha"}
+          systemInstruction={reviewSystemInstruction || "Você é o assistente de voz do Recistep. Fale em português do Brasil, ajude com dúvidas sobre receitas e explique que ferramentas de edição ficam disponíveis quando uma receita estiver em revisão. Não invente dados de uma receita que ainda não foi importada."}
+          toolGroups={reviewDraft ? REVIEW_TOOL_GROUPS : []}
+          executeTool={executeReviewTool}
+          getAccessToken={getAccessToken}
+          thinkingLevel="low"
+          apiRef={reviewVoiceApiRef}
+        />
       </section>
 
       <section className="workflow" aria-labelledby="workflow-heading">

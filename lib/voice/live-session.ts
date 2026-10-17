@@ -275,7 +275,11 @@ export function useLiveSession({
               error: error instanceof Error ? error.message : "Erro interno ao executar a ferramenta.",
             };
           }
-          return { id: call.id, name: call.name, response: { output } };
+          return {
+            id: call.id,
+            name: call.name,
+            response: { output, scheduling: "WHEN_IDLE" },
+          };
         }),
       )
         .then((functionResponses) => {
