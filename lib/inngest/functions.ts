@@ -3,6 +3,7 @@ import { inngest } from "@/lib/inngest/client";
 import {
   getSourceImport,
   updateSourceImport,
+  type SourceMetadata,
 } from "@/lib/server/supabase-rest";
 import { fetchYouTubePublicMetadata } from "@/lib/providers/sources/youtube-oembed";
 import {
@@ -54,7 +55,7 @@ export const processImportRequested = inngest.createFunction(
       return { id, status: "source_content_required" };
     }
 
-    let metadata;
+    let metadata: SourceMetadata;
     try {
       metadata = await step.run("fetch-public-source-metadata", async () =>
         fetchYouTubePublicMetadata(record.source_url),
