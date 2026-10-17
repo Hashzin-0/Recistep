@@ -139,13 +139,14 @@ const systemInstruction = [
   "- Retorne apenas o objeto JSON conforme o schema.",
 ].join("\n");
 
-function buildGenerationConfig(extra?: { streaming?: boolean }) {
+// Streaming is selected by the endpoint (`:streamGenerateContent`), never by a
+// field here; an unknown `stream` field makes the API reject the whole request.
+function buildGenerationConfig() {
   return {
     responseMimeType: "application/json",
     responseJsonSchema: recipeResponseSchema,
     temperature: 0.1,
     maxOutputTokens: 16_384,
-    ...(extra?.streaming ? { stream: true } : {}),
   };
 }
 
@@ -211,11 +212,17 @@ async function throwForHttpError(response: Response, parts: GeminiPart[]): Promi
       error?: { message?: unknown };
     } | null;
     const detail = typeof providerError?.error?.message === "string"
-      ? providerError.error.message.toLowerCase()
+      ? providerError.error.message
       : "";
+    const normalizedDetail = detail.toLowerCase();
     const isVideoInput = parts.some((part) => "file_data" in part);
     const videoUnavailable = isVideoInput &&
-      /youtube|video|public|private|unlisted|media|file_uri/.test(detail);
+      /youtube|video|public|private|unlisted|media|file_uri/.test(normalizedDetail);
+    // The provider message is safe to log (no secrets) and is the only way to
+    // diagnose an otherwise opaque 400.
+    console.error(
+      `[gemini] request rejected (400): ${detail.slice(0, 500)}`,
+    );
     throw new GeminiExtractionError(
       videoUnavailable ? "GEMINI_VIDEO_UNAVAILABLE" : "GEMINI_REQUEST_REJECTED_400",
       false,
@@ -357,7 +364,7 @@ async function openStreamingResponse(parts: GeminiPart[]): Promise<Response> {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{ role: "user", parts }],
-        generationConfig: buildGenerationConfig({ streaming: true }),
+        generationConfig: buildGenerationConfig(),
       }),
     });
     if (!response.ok) await throwForHttpError(response, parts);

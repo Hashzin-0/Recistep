@@ -116,6 +116,33 @@ describe("streamRecipeFromTranscript", () => {
     expect(received[received.length - 1]).toBe("Bolo de chocolate");
     // Final recipe is strict-validated: both steps and both ingredients present.
     expect(String(fetchMock.mock.calls[0][0])).toContain("streamGenerateContent");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("alt=sse");
+
+    // Streaming is chosen by the endpoint, so generationConfig must not carry a
+    // `stream` field (the API rejects it with 400) while keeping the schema.
+    const requestBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(requestBody.generationConfig).not.toHaveProperty("stream");
+    expect(requestBody.generationConfig.responseMimeType).toBe("application/json");
+    expect(requestBody.generationConfig.responseJsonSchema).toBeDefined();
+  });
+
+  it("classifies an invalid provider request as a non-retryable rejection", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        code: 400,
+        message: "Invalid JSON payload received. Unknown name \"stream\" at 'generation_config': Cannot find field.",
+      },
+    }), { status: 400, headers: { "Content-Type": "application/json" } })));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const transcript = "Misture a farinha, o chocolate e os ovos. Asse por 30 minutos em forno preaquecido a 180 graus.";
+    await expect(async () => {
+      for await (const _ of streamRecipeFromTranscript({ transcript })) {
+        // consume
+      }
+    }).rejects.toThrow("GEMINI_REQUEST_REJECTED_400");
+    expect(errorSpy).toHaveBeenCalled();
   });
 
   it("throws when the final accumulation fails schema validation", async () => {
