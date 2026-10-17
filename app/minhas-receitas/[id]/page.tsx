@@ -9,38 +9,7 @@ import { KitchenMode } from "@/components/kitchen-mode";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
-
-function ingredientIcon(name: string): string {
-  const value = name.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("pt-BR");
-
-  // Specific matches must precede broad ingredient families to avoid misleading icons.
-  if (/\\bbanana(s)?\\b/.test(value)) return "🍌";
-  if (/\\b(manteiga|butter)\\b/.test(value)) return "🧈";
-  if (/\\b(acucar|adocante|sweetener)\\b/.test(value)) return "🥄";
-  if (/\\b(mel|honey)\\b/.test(value)) return "🍯";
-  if (/\\b(canela|cinnamon|especiaria|tempero)\\b/.test(value)) return "🌿";
-  if (/\\b(limao|lemon)\\b/.test(value)) return "🍋";
-  if (/\\b(laranja|orange)\\b/.test(value)) return "🍊";
-  if (/\\b(morango|strawberry)\\b/.test(value)) return "🍓";
-  if (/\\b(maca|apple)\\b/.test(value)) return "🍎";
-  if (/\\b(ovo|ovos|egg|eggs)\\b/.test(value)) return "🥚";
-  if (/\\b(leite|creme|iogurte|queijo|cream|milk|yogurt|cheese)\\b/.test(value)) return "🥛";
-  if (/\\b(farinha|trigo|amido|fermento|flour|starch)\\b/.test(value)) return "🌾";
-  if (/\\b(frango|carne|bacon|beef|chicken|pork)\\b/.test(value)) return "🥩";
-  if (/\\b(peixe|sardinha|atum|fish|tuna)\\b/.test(value)) return "🐟";
-  if (/\\btomate\\b/.test(value)) return "🍅";
-  if (/\\b(cenoura|carrot)\\b/.test(value)) return "🥕";
-  if (/\\b(cebola|onion)\\b/.test(value)) return "🧅";
-  if (/\\b(alho|garlic)\\b/.test(value)) return "🧄";
-  if (/\\b(batata|potato)\\b/.test(value)) return "🥔";
-  if (/\\b(legume|verdura|vegetal|vegetable)\\b/.test(value)) return "🥬";
-  if (/\\b(arroz|rice)\\b/.test(value)) return "🍚";
-  if (/\\b(feijao|lentilha|grao|bean|lentil)\\b/.test(value)) return "🫘";
-  if (/\\b(oleo|azeite|olive oil)\\b/.test(value)) return "🫒";
-  if (/\\b(chocolate|cacau|cocoa)\\b/.test(value)) return "🍫";
-  if (/\\b(sal|salt)\\b/.test(value)) return "🧂";
-  return "🍽️";
-}
+import { IngredientIllustration } from "@/components/ingredient-illustration";
 
 function quantityLabel(quantity: number | null, unit: string | null, text: string | null | undefined): string {
   if (text) return text;
@@ -197,7 +166,7 @@ export default function ReceitaDetalhePage() {
                       <h3>{section}</h3>
                       <ul className="recipe-detail-list">
                         {ingredients.map((ingredient, index) => (
-                          <li key={index}><span className="ingredient-icon" aria-hidden="true">{ingredientIcon(ingredient.name)}</span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
+                          <li key={index}><span className="ingredient-icon"><IngredientIllustration name={ingredient.name} /></span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
                         ))}
                       </ul>
                     </section>
