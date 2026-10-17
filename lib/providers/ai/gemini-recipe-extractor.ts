@@ -1,6 +1,8 @@
 import "server-only";
 import { recipeExtractionSchema, type RecipeExtraction } from "@/lib/schemas/recipe";
 
+// Gemini REST structured output accepts a constrained JSON Schema subset.
+// The result is still validated with Zod because model output is untrusted.
 const recipeResponseSchema = {
   type: "object",
   additionalProperties: false,
@@ -10,41 +12,44 @@ const recipeResponseSchema = {
     source_language: { type: ["string", "null"] },
     servings: { type: ["number", "null"] },
     timings: {
-      type: "OBJECT",
+      type: "object",
+      additionalProperties: false,
       properties: {
         prep_seconds: { type: ["integer", "null"] },
-        cook_seconds: { type: ["INTEGER", "NULL"] },
-        total_seconds: { type: ["INTEGER", "NULL"] },
+        cook_seconds: { type: ["integer", "null"] },
+        total_seconds: { type: ["integer", "null"] },
       },
       required: ["prep_seconds", "cook_seconds", "total_seconds"],
     },
     ingredients: {
       type: "array",
       items: {
-        type: "OBJECT",
+        type: "object",
+        additionalProperties: false,
         properties: {
-          name: { type: "STRING" },
-          quantity: { type: ["NUMBER", "NULL"] },
-          unit: { type: ["STRING", "NULL"] },
-          notes: { type: ["STRING", "NULL"] },
-          source_evidence: { type: ["STRING", "NULL"] },
-          confidence: { type: "number" },
+          name: { type: "string" },
+          quantity: { type: ["number", "null"] },
+          unit: { type: ["string", "null"] },
+          notes: { type: ["string", "null"] },
+          source_evidence: { type: ["string", "null"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
         },
         required: ["name", "quantity", "unit", "notes", "source_evidence", "confidence"],
       },
     },
     steps: {
-      type: "ARRAY",
+      type: "array",
       items: {
-        type: "OBJECT",
+        type: "object",
+        additionalProperties: false,
         properties: {
-          position: { type: "integer" },
-          instruction: { type: "STRING" },
-          duration_seconds: { type: ["INTEGER", "NULL"] },
-          temperature_value: { type: ["NUMBER", "NULL"] },
-          temperature_unit: { type: ["STRING", "NULL"] },
-          source_evidence: { type: ["STRING", "NULL"] },
-          confidence: { type: "NUMBER" },
+          position: { type: "integer", minimum: 0, maximum: 200 },
+          instruction: { type: "string" },
+          duration_seconds: { type: ["integer", "null"] },
+          temperature_value: { type: ["number", "null"] },
+          temperature_unit: { type: ["string", "null"], enum: ["C", "F", null] },
+          source_evidence: { type: ["string", "null"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
         },
         required: [
           "position", "instruction", "duration_seconds", "temperature_value",
@@ -52,8 +57,8 @@ const recipeResponseSchema = {
         ],
       },
     },
-    uncertainties: { type: "ARRAY", items: { type: "STRING" } },
-    warnings: { type: "ARRAY", items: { type: "STRING" } },
+    uncertainties: { type: "array", items: { type: "string" } },
+    warnings: { type: "array", items: { type: "string" } },
   },
   required: [
     "title", "description", "source_language", "servings", "timings",
@@ -124,7 +129,6 @@ export async function extractRecipeFromTranscript(input: {
       generationConfig: {
         responseMimeType: "application/json",
         responseJsonSchema: recipeResponseSchema,
-        temperature: 0.1,
         maxOutputTokens: 8_000,
       },
     }),
