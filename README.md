@@ -12,7 +12,8 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 - Workflow durável Inngest para importações e extração de transcrição.
 - Conector YouTube oEmbed para metadados públicos. **Não baixa vídeo nem obtém transcrição.**
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
-- Endpoint de envio de transcrição fornecida pelo usuário, necessário quando não há conector autorizado para conteúdo.
+- Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
+- Interface de envio de transcrição fornecida pelo usuário e visualização do rascunho gerado, necessário quando não há conector autorizado para conteúdo.
 - A importação não vira receita confirmada automaticamente: o resultado Gemini permanece em `review_required`.
 
 **Limite importante:** o projeto Supabase Recistep não foi provisionado/configurado neste ambiente. A migração está versionada no repositório, mas ainda precisa ser aplicada ao projeto Supabase dedicado. Não há credenciais reais de Supabase, Gemini ou Inngest no repositório. Não declare a aplicação operacional até configurar os serviços e validar a execução.
@@ -72,11 +73,11 @@ Requer autenticação e JSON `{"transcript":"..." }` com 80 a 80.000 caracteres.
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O conector YouTube implementado consulta apenas o endpoint público oEmbed. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados.
+O conector YouTube implementado consulta apenas o endpoint público oEmbed. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição e revisar o rascunho; salvar a receita normalizada e confirmar a revisão ainda não estão implementados.
 
 ## Configuração de ambiente
 
-Copie `.env.example` para `.env.local` e configure valores reais. Mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
+Copie `.env.example` para `.env.local` e configure valores reais. As variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` são públicas e usadas apenas pelo cliente de Auth; mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Configure também as opções de confirmação de e-mail e URLs de redirecionamento no Supabase Auth. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
 
 ## Migração Supabase
 
