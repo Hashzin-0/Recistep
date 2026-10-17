@@ -147,7 +147,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      await inngest.send({ name: "recistep/import.requested", data: { id: record.id } });
+      await inngest.send({ name: "recistep/import.requested", data: { id: record.id, user_id: user.id } });
     } catch {
       await updateSourceImport(record.id, {
         status: "failed",
