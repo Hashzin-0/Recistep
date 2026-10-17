@@ -10,7 +10,7 @@ Aplicativo web responsivo/PWA para organizar receitas a partir de fontes culiná
 - Migração Supabase com importações, receitas, ingredientes, etapas e políticas RLS por proprietário.
 - Adaptador REST server-only para validar tokens Supabase e persistir importações usando a chave de serviço apenas no servidor.
 - Workflow durável Inngest para importações e extração de transcrição.
-- Conector YouTube oEmbed para metadados públicos. **Não baixa vídeo nem obtém transcrição.**
+- Conector YouTube oEmbed para metadados públicos e análise de vídeos públicos diretamente pela API Gemini. O Recistep não baixa o vídeo por conta própria; o recurso de URL do YouTube na API Gemini está em prévia e só aceita vídeos públicos.
 - Extração estruturada Gemini, com schema de saída e validação Zod posterior.
 - Interface de autenticação Supabase (entrar/criar conta), envio de importação e acompanhamento de estado.
 - Interface de envio de transcrição fornecida pelo usuário e visualização do rascunho gerado, necessário quando não há conector autorizado para conteúdo.
@@ -73,7 +73,7 @@ Requer autenticação e JSON `{"transcript":"..." }` com 80 a 80.000 caracteres.
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O conector YouTube implementado consulta apenas o endpoint público oEmbed. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição e revisar o rascunho; salvar a receita normalizada e confirmar a revisão ainda não estão implementados.
+O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição e revisar o rascunho; salvar a receita normalizada e confirmar a revisão ainda não estão implementados.
 
 ## Configuração de ambiente
 
