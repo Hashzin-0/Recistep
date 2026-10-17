@@ -52,6 +52,8 @@ export type DbRecipeRow = {
   source_import_id: string | null;
   title: string;
   description: string | null;
+  cover_image_url?: string | null;
+  preparation_flowchart_url?: string | null;
   source_url: string | null;
   source_language: string | null;
   servings: number | null;
@@ -78,6 +80,7 @@ export type DbIngredientRow = {
   source_evidence: string | null;
   confidence: number;
   position: number;
+  section?: string;
 };
 
 export type DbStepRow = {
@@ -104,6 +107,7 @@ export type RecipeSummary = {
   total_seconds: number | null;
   ingredients_count: number;
   steps_count: number;
+  cover_image_url?: string | null;
   source_url: string | null;
   created_at: string;
   updated_at: string;
@@ -199,6 +203,7 @@ export function recipeSummary(recipe: DbRecipeRow, ingredientsCount: number, ste
     ingredients_count: ingredientsCount,
     steps_count: stepsCount,
     source_url: recipe.source_url,
+    cover_image_url: recipe.cover_image_url ?? null,
     created_at: recipe.created_at,
     updated_at: recipe.updated_at,
   };
