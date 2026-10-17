@@ -87,7 +87,7 @@ O corpo contém a versão revisada. Uma função PostgreSQL transacional grava a
 - `review_required`: Gemini produziu rascunho estruturado; revisão humana é obrigatória.
 - `failed`: falha terminal ou impossibilidade de agendar o evento.
 
-O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição e revisar o rascunho; salvar a receita normalizada e confirmar a revisão ainda não estão implementados.
+O Recistep consulta o endpoint público oEmbed e, quando Gemini está configurado, envia a URL pública do YouTube à API Gemini para análise multimodal. Se o vídeo não puder ser processado, a interface solicita uma transcrição autorizada. TikTok e Instagram ainda não têm conectores de conteúdo. Não há scraping, bypass de controles de acesso nem dados simulados. A interface permite entrar/criar conta, acompanhar a importação, fornecer transcrição, revisar e confirmar a receita, ajustar porções e gerar lista de compras persistida.
 
 ## Login com Google pelo Supabase
 
@@ -112,3 +112,22 @@ O arquivo `supabase/migrations/20261016000100_recistep_core.sql` cria as tabelas
 ## Plano técnico
 
 O plano detalhado de 14 critérios está em [plano.md](./plano.md). Ele distingue implementação real de itens pendentes.
+
+
+## Hash de receita, deduplicação e cache
+
+- source_url_hash: SHA-256 da URL canônica; links do YouTube watch?v= e youtu.be do mesmo vídeo geram o mesmo hash.
+- recipe_fingerprint: SHA-256 determinístico do título, ingredientes, quantidades/unidades e etapas normalizados.
+- recipe_cache armazena apenas rascunhos estruturados derivados de fontes públicas elegíveis; não armazena mídia bruta, credenciais nem transcrições privadas fornecidas pelo usuário.
+- A busca tenta primeiro cache em memória (TTL de 5 minutos, LRU de até 500 chaves) e depois o Data Cache do Next.js (TTL de 1 hora), antes de consultar o Supabase. Escritas invalidam a tag do cache.
+- Uma URL já conhecida pode receber o rascunho persistido sem chamar Gemini. No worker, títulos normalizados idênticos também podem reutilizar o rascunho; o fingerprint completo é guardado para identificar receitas iguais após extração. Títulos genéricos curtos são ignorados para reduzir colisões.
+- O cache é uma otimização, não a fonte final da receita confirmada: cada usuário ainda confirma a receita na própria conta.
+
+## Planejamento e lista de compras
+
+- O ajuste de porções usa a função determinística scaleIngredients, preserva ingredientes sem quantidade e não converte unidades incompatíveis.
+- POST /api/v1/shopping-lists cria uma lista a partir de uma ou mais receitas confirmadas do próprio usuário.
+- GET /api/v1/shopping-lists/{id} consulta a lista pertencente ao usuário.
+- PATCH /api/v1/shopping-lists/{id}/items/{itemId} persiste a marcação de item comprado.
+- A consolidação agrupa apenas nomes normalizados com unidade igual; itens sem quantidade conhecida não recebem soma inventada. Cada item guarda IDs das receitas e dos ingredientes de origem.
+- As migrations 20261017120637_recipe_cache_and_shopping.sql e 20261017120831_recipe_cache_service_policy.sql criam o cache, hashes, listas, itens, políticas RLS e função transacional de criação da lista.
