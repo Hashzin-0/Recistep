@@ -193,6 +193,58 @@ export async function getUserSourceImport(
 
 
 
+
+export type ShoppingListItemRecord = {
+  id: string; shopping_list_id: string; name: string; normalized_name: string;
+  quantity: number | null; unit: string | null; notes: string | null; is_purchased: boolean;
+  source_recipe_ids: string[]; source_ingredient_ids: string[]; position: number;
+};
+export type ShoppingListRecord = {
+  id: string; title: string; created_at: string; updated_at: string; items: ShoppingListItemRecord[];
+};
+export async function createShoppingListFromRecipes(userId: string, recipeIds: string[]): Promise<{ id: string; title: string }> {
+  const result = await supabaseRequest<{ id: string; title: string } | Array<{ id: string; title: string }>>(
+    "rpc/create_shopping_list_from_recipes",
+    { method: "POST", body: JSON.stringify({ p_user_id: userId, p_recipe_ids: recipeIds }) },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.id !== "string") throw new Error("SHOPPING_LIST_CREATE_EMPTY");
+  return row;
+}
+export async function getShoppingListForUser(listId: string, userId: string): Promise<ShoppingListRecord | null> {
+  const params = new URLSearchParams({ select: "id,title,created_at,updated_at", id: "eq." + listId, user_id: "eq." + userId, limit: "1" });
+  const lists = await supabaseRequest<Omit<ShoppingListRecord, "items">[]>("shopping_lists?" + params.toString());
+  const list = lists[0];
+  if (!list) return null;
+  const itemParams = new URLSearchParams({
+    select: "id,shopping_list_id,name,normalized_name,quantity,unit,notes,is_purchased,source_recipe_ids,source_ingredient_ids,position",
+    shopping_list_id: "eq." + listId, order: "position.asc",
+  });
+  const items = await supabaseRequest<ShoppingListItemRecord[]>("shopping_list_items?" + itemParams.toString());
+  return { ...list, items };
+}
+export async function setShoppingItemPurchased(input: {
+  listId: string; itemId: string; userId: string; isPurchased: boolean;
+}): Promise<ShoppingListItemRecord | null> {
+  const listParams = new URLSearchParams({ select: "id", id: "eq." + input.listId, user_id: "eq." + input.userId, limit: "1" });
+  const lists = await supabaseRequest<Array<{ id: string }>>("shopping_lists?" + listParams.toString());
+  if (!lists[0]) return null;
+  const itemParams = new URLSearchParams({ select: "id,shopping_list_id,name,normalized_name,quantity,unit,notes,is_purchased,source_recipe_ids,source_ingredient_ids,position", id: "eq." + input.itemId, shopping_list_id: "eq." + input.listId });
+  const rows = await supabaseRequest<ShoppingListItemRecord[]>("shopping_list_items?" + itemParams.toString(), {
+    method: "PATCH", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ is_purchased: input.isPurchased, updated_at: new Date().toISOString() }),
+  });
+  return rows[0] ?? null;
+}
+export type RecipeCacheDbEntry = {
+  source_url_hash: string | null;
+  source_content_hash: string | null;
+  recipe_fingerprint: string;
+  normalized_title?: string | null;
+  recipe_draft: unknown;
+  source_metadata: Record<string, unknown> | null;
+};
+
 export async function findRecipeCacheEntry(
   kind: "url" | "content" | "title" | "write",
   value: string,
