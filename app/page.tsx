@@ -20,6 +20,7 @@ type ImportRecord = {
   id: string;
   status: string;
   error_message?: string | null;
+  error_code?: string | null;
   source_metadata?: { title?: string; author_name?: string | null } | null;
   recipe_draft?: RecipeDraft | null;
 };
@@ -117,6 +118,8 @@ export default function HomePage() {
       }
       setAuthPassword("");
       setAuthFeedback("Sessão iniciada.");
+    } catch {
+      setAuthFeedback("Não foi possível conectar ao serviço de autenticação.");
     } finally {
       setIsAuthBusy(false);
     }
@@ -146,6 +149,8 @@ export default function HomePage() {
       setAuthFeedback(data.session
         ? "Conta criada e sessão iniciada."
         : "Conta criada. Confira seu e-mail para confirmar o cadastro antes de entrar.");
+    } catch {
+      setAuthFeedback("Não foi possível conectar ao serviço de autenticação.");
     } finally {
       setIsAuthBusy(false);
     }
@@ -155,11 +160,14 @@ export default function HomePage() {
     if (!supabase) return;
     setIsAuthBusy(true);
     try {
-      await supabase.auth.signOut();
-      setAuthFeedback("Sessão encerrada.");
+      const { error } = await supabase.auth.signOut();
+      if (error) setAuthFeedback("Não foi possível encerrar a sessão agora.");
+      else setAuthFeedback("Sessão encerrada.");
       setActiveImportId(null);
       setImportRecord(null);
       setTranscript("");
+    } catch {
+      setAuthFeedback("Não foi possível conectar ao serviço de autenticação.");
     } finally {
       setIsAuthBusy(false);
     }
@@ -415,10 +423,11 @@ export default function HomePage() {
               {importRecord.source_metadata?.title && (
                 <p className="source-metadata-title">{importRecord.source_metadata.title}</p>
               )}
-              {importRecord.error_message && importRecord.status === "failed" && (
+              {importRecord.error_message && ["failed", "source_content_required"].includes(importRecord.status) && (
                 <p className="field-hint">{importRecord.error_message}</p>
               )}
-              {importRecord.status === "source_content_required" && (
+              {(importRecord.status === "source_content_required" ||
+                (importRecord.status === "failed" && ["PROCESSING_FAILED", "GEMINI_PROCESSING_FAILED"].includes(importRecord.error_code ?? ""))) && (
                 <form className="transcript-form" onSubmit={handleTranscriptSubmit}>
                   <label htmlFor="source-transcript">Transcrição autorizada do vídeo</label>
                   <textarea
