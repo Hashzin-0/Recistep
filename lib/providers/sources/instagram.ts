@@ -67,6 +67,51 @@ function publicVideoUrl(html: string): string | null {
   return null;
 }
 
+function publicCaptionFromHtml(html: string): string | null {
+  const metaTags = html.match(/<meta\\b[^>]*>/gi) ?? [];
+  for (const tag of metaTags) {
+    const key = (attribute(tag, "property") ?? attribute(tag, "name") ?? "").toLowerCase();
+    if (!["og:description", "description", "twitter:description"].includes(key)) continue;
+    const value = attribute(tag, "content");
+    if (value) return value.slice(0, 10_000);
+  }
+
+  // Older public Instagram pages expose the same caption in shared_data JSON.
+  const sharedData = html.match(/(?:window\\.)?_sharedData\\s*=\\s*(\\{[\\s\\S]*?\\})\\s*;?/);
+  if (sharedData?.[1]) {
+    try {
+      const parsed: unknown = JSON.parse(sharedData[1]);
+      if (parsed && typeof parsed === "object") {
+        const entryData = (parsed as Record<string, unknown>).entry_data;
+        if (entryData && typeof entryData === "object") {
+          const posts = (entryData as Record<string, unknown>).PostPage;
+          if (Array.isArray(posts)) {
+            const media = (posts[0] as Record<string, unknown> | undefined)?.graphql;
+            const shortcodeMedia = media && typeof media === "object"
+              ? (media as Record<string, unknown>).shortcode_media
+              : null;
+            const edge = shortcodeMedia && typeof shortcodeMedia === "object"
+              ? (shortcodeMedia as Record<string, unknown>).edge_media_to_caption
+              : null;
+            const edges = edge && typeof edge === "object" ? (edge as Record<string, unknown>).edges : null;
+            if (Array.isArray(edges)) {
+              for (const item of edges) {
+                const node = item && typeof item === "object" ? (item as Record<string, unknown>).node : null;
+                const text = node && typeof node === "object" ? (node as Record<string, unknown>).text : null;
+                if (typeof text === "string" && text.trim()) return text.trim().slice(0, 10_000);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Malformed legacy payloads are ignored; do not let HTML parsing fail the import.
+    }
+  }
+
+  return null;
+}
+
 export const instagramConnector: SourceConnector = {
   platform: "instagram",
 
@@ -90,23 +135,27 @@ export const instagramConnector: SourceConnector = {
       // Instagram often returns a login shell or blocks server requests; oEmbed remains a fallback.
     }
 
-    let oembed: OEmbedPayload;
+    let oembed: OEmbedPayload | null = null;
     try {
       const document = await fetchAllowlistedDocument({
         url: `${OEMBED_ENDPOINT}?url=${encodeURIComponent(canonical.toString())}`,
         isAllowedHost: (hostname) => isPlatformPageHost("instagram", hostname),
       });
       const parsed: unknown = JSON.parse(document.body);
-      if (!parsed || typeof parsed !== "object") throw new Error("SOURCE_METADATA_UNAVAILABLE");
-      oembed = parsed as OEmbedPayload;
+      if (parsed && typeof parsed === "object") oembed = parsed as OEmbedPayload;
     } catch (error) {
-      if (error instanceof Error && error.message === "SOURCE_PROVIDER_TEMPORARY_FAILURE") throw error;
-      throw new Error("SOURCE_METADATA_UNAVAILABLE");
+      // The upstream scraper also parses public page payloads directly. Prefer
+      // oEmbed when available, but do not discard a usable public HTML caption.
+      if (error instanceof Error && error.message === "SOURCE_PROVIDER_TEMPORARY_FAILURE") {
+        if (!publicCaptionFromHtml(pageHtml)) throw error;
+      }
     }
 
-    const caption = firstString(oembed.title) ?? "";
-    const authorName = firstString(oembed.author_name);
-    const thumbnail = firstString(oembed.thumbnail_url);
+    const htmlCaption = publicCaptionFromHtml(pageHtml);
+    const caption = firstString(oembed?.title, htmlCaption) ?? "";
+    const authorName = firstString(oembed?.author_name);
+    const thumbnail = firstString(oembed?.thumbnail_url);
+    if (!oembed && !caption) throw new Error("SOURCE_METADATA_UNAVAILABLE");
     const metadata = {
       title: (caption || (authorName ? `Instagram de ${authorName}` : "Post do Instagram")).slice(0, 200),
       author_name: authorName?.slice(0, 200) ?? null,
