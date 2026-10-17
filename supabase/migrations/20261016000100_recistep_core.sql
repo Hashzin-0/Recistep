@@ -168,5 +168,6 @@ create policy "Users manage steps on own recipes"
 -- authenticated server routes. Do not expose this table through the Data API.
 revoke all on public.source_imports from anon, authenticated;
 revoke all on public.recipes, public.ingredients, public.preparation_steps from anon;
+grant all on public.source_imports, public.recipes, public.ingredients, public.preparation_steps to service_role;
 grant select, insert, update, delete on public.recipes to authenticated;
 grant select, insert, update, delete on public.ingredients, public.preparation_steps to authenticated;
