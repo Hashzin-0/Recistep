@@ -65,7 +65,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 12000 } }),
       signal: AbortSignal.timeout(90000),
     });
-    const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] }[] }[]; error?: { message?: string } } | null;
+    const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } } | null;
     if (!response.ok) {
       console.error("[recipe-flowchart] Gemini rejected request", response.status, payload?.error?.message?.slice(0, 300));
       return NextResponse.json({ error: { code: "GEMINI_FLOWCHART_FAILED", message: "O Gemini não conseguiu gerar o fluxograma." } }, { status: 502 });
