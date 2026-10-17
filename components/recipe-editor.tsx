@@ -97,6 +97,14 @@ export function RecipeEditor({ value, onChange, idPrefix = "recipe", allowStruct
                 <button className="link-button danger" type="button" onClick={() => removeIngredient(index)}>Remover</button>
               )}
             </div>
+            <label htmlFor={`${idPrefix}-ingredient-section-${index}`}>Camada / preparação</label>
+            <input
+              id={`${idPrefix}-ingredient-section-${index}`}
+              value={ingredient.section ?? "Ingredientes"}
+              maxLength={100}
+              placeholder="Ex.: Massa, Calda, Banho-maria"
+              onChange={(event) => setIngredient(index, { section: event.target.value || "Ingredientes" })}
+            />
             <input
               id={`${idPrefix}-ingredient-name-${index}`}
               value={ingredient.name}
