@@ -8,6 +8,25 @@ import { probeExternalMedia } from "@/lib/providers/media/remote-video";
 const REHYDRATION_SCRIPT =
   /<script[^>]*\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i;
 
+const LEGACY_SIGI_STATE_SCRIPT = /<script[^>]*\\bid="SIGI_STATE"[^>]*>([\\s\\S]*?)<\\/script>/i;
+
+function parseLegacySigiState(html: string, sourcePath: string): Record<string, unknown> | null {
+  const match = html.match(LEGACY_SIGI_STATE_SCRIPT);
+  if (!match?.[1]) return null;
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    if (!parsed || typeof parsed !== "object") return null;
+    const itemModule = (parsed as Record<string, unknown>).ItemModule;
+    if (!itemModule || typeof itemModule !== "object") return null;
+    const videoId = sourcePath.match(/\\/(?:video|photo)\\/(\\d+)/)?.[1];
+    const items = itemModule as Record<string, unknown>;
+    const selected = (videoId && items[videoId]) ?? Object.values(items)[0];
+    return selected && typeof selected === "object" ? (selected as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 const PAGE_HOST = (hostname: string) => isPlatformPageHost("tiktok", hostname);
 const MEDIA_HOST = (hostname: string) => isPlatformMediaHost("tiktok", hostname);
 
@@ -151,14 +170,16 @@ export const tiktokConnector: SourceConnector = {
     });
 
     const data = parseRehydrationBody(page.body);
-    if (!data) throw new Error("SOURCE_METADATA_UNAVAILABLE");
-
-    const statusCode = at(data, ["__DEFAULT_SCOPE__", "webapp.video-detail", "statusCode"]);
+    const statusCode = data ? at(data, ["__DEFAULT_SCOPE__", "webapp.video-detail", "statusCode"]) : null;
     if (typeof statusCode === "number" && statusCode !== 0) {
       throw new Error("SOURCE_METADATA_UNAVAILABLE");
     }
 
-    const item = at(data, ["__DEFAULT_SCOPE__", "webapp.video-detail", "itemInfo", "itemStruct"]);
+    // The upstream drawrowfly scraper supports older SIGI_STATE/ItemModule
+    // pages. Reuse that payload shape as a fallback, without its legacy request,
+    // proxy, cookie, filesystem or download engine.
+    const item = (data && at(data, ["__DEFAULT_SCOPE__", "webapp.video-detail", "itemInfo", "itemStruct"]))
+      ?? parseLegacySigiState(page.body, source.pathname);
     if (!item || typeof item !== "object") throw new Error("SOURCE_METADATA_UNAVAILABLE");
     const record = item as Record<string, unknown>;
 
