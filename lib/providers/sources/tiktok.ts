@@ -8,7 +8,7 @@ import { probeExternalMedia } from "@/lib/providers/media/remote-video";
 const REHYDRATION_SCRIPT =
   /<script[^>]*\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i;
 
-const LEGACY_SIGI_STATE_SCRIPT = /<script[^>]*\\bid="SIGI_STATE"[^>]*>([\\s\\S]*?)<\\/script>/i;
+const LEGACY_SIGI_STATE_SCRIPT = /<script[^>]*\bid="SIGI_STATE"[^>]*>([\s\S]*?)<\/script>/i;
 
 function parseLegacySigiState(html: string, sourcePath: string): Record<string, unknown> | null {
   const match = html.match(LEGACY_SIGI_STATE_SCRIPT);
@@ -18,7 +18,7 @@ function parseLegacySigiState(html: string, sourcePath: string): Record<string, 
     if (!parsed || typeof parsed !== "object") return null;
     const itemModule = (parsed as Record<string, unknown>).ItemModule;
     if (!itemModule || typeof itemModule !== "object") return null;
-    const videoId = sourcePath.match(/\\/(?:video|photo)\\/(\\d+)/)?.[1];
+    const videoId = sourcePath.match(/\/(?:video|photo)\/(\d+)/)?.[1];
     const items = itemModule as Record<string, unknown>;
     const selected = (videoId && items[videoId]) ?? Object.values(items)[0];
     return selected && typeof selected === "object" ? (selected as Record<string, unknown>) : null;
