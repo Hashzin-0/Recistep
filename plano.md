@@ -750,3 +750,11 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - A extração Gemini só roda depois que uma transcrição válida é fornecida; o rascunho fica em `review_required` e não é salvo como receita confirmada automaticamente.
 - O arquivo de migração foi criado diretamente via API do GitHub, pois não havia checkout/CLI Supabase disponível para gerar o nome. Deve ser revisado e validado antes da aplicação.
 - Testes, typecheck, build, execução da migração e Supabase advisors **não foram executados** nesta sessão.
+
+
+### Complemento de interface — 2026-10-16
+- A página inicial agora usa o cliente browser Supabase Auth para criar conta, entrar e sair; os access tokens são enviados somente nos cabeçalhos das rotas autenticadas.
+- A interface acompanha estados `queued` e `processing`, permite atualização manual e apresenta o campo de transcrição quando o estado exigir conteúdo.
+- A UI apresenta ingredientes e etapas do rascunho em `review_required`; persistência normalizada e ação de confirmação humana permanecem como próxima etapa.
+- O cliente browser usa apenas variáveis públicas Supabase. A service-role key continua exclusiva do servidor.
+- Essas alterações ainda não foram verificadas por uma execução de CI correspondente ao head atual.
