@@ -36,3 +36,14 @@ describe("validateSourceUrl", () => {
     expect(validateSourceUrl("https://youtube.com/" + "a".repeat(2050)).ok).toBe(false);
   });
 });
+
+  it("recognizes the exact YouTube video supplied for the end-to-end test", () => {
+    const result = validateSourceUrl("https://youtu.be/olw3gMc4YlU?is=JlA_W00Jux4R6fQO");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platform).toBe("youtube");
+      expect(result.url.hostname).toBe("youtu.be");
+      expect(result.url.pathname).toBe("/olw3gMc4YlU");
+    }
+  });
