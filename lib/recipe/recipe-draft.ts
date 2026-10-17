@@ -3,6 +3,7 @@ import type { IngredientExtraction, PreparationStepExtraction, RecipeExtraction 
 export function emptyIngredient(): IngredientExtraction {
   return {
     name: "",
+    section: "Ingredientes",
     quantity: null,
     quantity_text: null,
     quantity_min: null,
@@ -124,6 +125,7 @@ export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredient
     .sort((a, b) => a.position - b.position)
     .map((ingredient) => ({
       name: ingredient.name,
+      section: ingredient.section ?? "Ingredientes",
       quantity: ingredient.quantity,
       quantity_text: ingredient.quantity_text,
       quantity_min: ingredient.quantity_min,
