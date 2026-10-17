@@ -197,3 +197,16 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .auth-signed-in strong { max-width: 180px; }
   .auth-actions > button { flex: 1; }
 }
+
+.auth-google-content { display: grid; gap: 10px; }
+.auth-google-button {
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  width: 100%; min-height: 44px; padding: 0 14px;
+  border: 1px solid #d9ddd2; border-radius: 8px; background: #fff; color: #30352e;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.auth-google-button:hover:not(:disabled) { background: #fbfcf9; border-color: #bfc8b3; box-shadow: 0 2px 8px #303b200d; }
+.auth-google-button:disabled { cursor: wait; opacity: .65; }
+.auth-google-button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.auth-google-hint { margin: 0; color: #8a8e83; font-size: 9px; line-height: 1.5; }
