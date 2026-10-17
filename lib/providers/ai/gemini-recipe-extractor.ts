@@ -50,6 +50,7 @@ const recipeResponseSchema = {
         additionalProperties: false,
         properties: {
           name: { type: "string" },
+          section: { type: "string", description: "Camada de preparo, por exemplo Massa, Calda, Recheio ou Banho-maria. Use Ingredientes se a fonte não separar." },
           quantity: { type: ["number", "null"] },
           quantity_text: { type: ["string", "null"] },
           quantity_min: { type: ["number", "null"] },
@@ -61,7 +62,7 @@ const recipeResponseSchema = {
           confidence: { type: "number", minimum: 0, maximum: 1 },
         },
         required: [
-          "name", "quantity", "quantity_text", "quantity_min", "quantity_max",
+          "name", "section", "quantity", "quantity_text", "quantity_min", "quantity_max",
           "unit", "unit_normalized", "notes", "source_evidence", "confidence",
         ],
       },
@@ -118,6 +119,7 @@ const systemInstruction = [
   "",
   "REGRAS DE COBERTURA DE MEDIDAS (obrigatórias):",
   "- Extraia TODOS os ingredientes, um por linha. Nunca omita um ingrediente.",
+  "- Separe ingredientes por camada de preparo quando a fonte indicar (ex.: Massa, Calda, Recheio, Cobertura, Banho-maria). Não invente camadas; use \"Ingredientes\" quando não houver separação clara.",
   "- Para cada ingrediente capture a medida EXATAMENTE como aparece em quantity_text (ex.: '2 a 3 colheres', '1/2 xícara', '1 1/2 colher de sopa', 'um punhado', 'a gosto').",
   "- quantity_min/quantity_max representam intervalos (ex.: '2 a 3' -> 2 e 3). quantity guarda o valor representativo mais provável.",
   "- Para frações (1/2, ¾, 1 1/2) preencha quantity com o decimal e mantenha o literal em quantity_text.",
@@ -267,6 +269,7 @@ function coerceIngredient(value: unknown): IngredientExtraction | null {
   const confidence = numberOrNull(value.confidence);
   return {
     name,
+    section: stringOrNull(value.section)?.trim() || "Ingredientes",
     quantity: numberOrNull(value.quantity),
     quantity_text: stringOrNull(value.quantity_text)?.trim() || null,
     quantity_min: numberOrNull(value.quantity_min),

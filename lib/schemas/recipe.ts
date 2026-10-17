@@ -10,6 +10,7 @@ const confidenceSchema = z.number().min(0).max(1);
 // permanecem null: nunca inventamos quantidade.
 export const ingredientExtractionSchema = z.object({
   name: z.string().trim().min(1).max(200),
+  section: z.string().trim().min(1).max(100).optional(),
   quantity: z.number().positive().finite().nullable().default(null),
   quantity_text: z.string().trim().max(120).nullish(),
   quantity_min: z.number().positive().finite().nullish(),

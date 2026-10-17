@@ -178,3 +178,26 @@ A migração `supabase/migrations/20261017150000_recipe_crud.sql` cria as funç�
 - PATCH /api/v1/shopping-lists/{id}/items/{itemId} persiste a marcação de item comprado. DELETE /api/v1/shopping-lists/{id} exclui a lista.
 - A consolidação agrupa apenas nomes normalizados com unidade igual; itens sem quantidade conhecida não recebem soma inventada. Cada item guarda IDs das receitas e dos ingredientes de origem.
 - As migrations 20261017120637_recipe_cache_and_shopping.sql e 20261017120831_recipe_cache_service_policy.sql criam o cache, hashes, listas, itens, políticas RLS e função transacional de criação da lista.
+
+
+## Camadas, capa, avaliações e fluxograma
+
+A ficha de receita permite separar ingredientes em camadas nomeadas (por exemplo, **Massa**, **Calda**, **Recheio** e **Banho-maria**). A extração Gemini atribui uma camada quando a fonte a explicita; receitas antigas ou fontes sem separação usam **Ingredientes**. A camada é editável e persistida no banco.
+
+Na página de detalhe da receita:
+- ingredientes são exibidos com ícones visuais por tipo de ingrediente;
+- o proprietário pode enviar uma capa JPG, PNG ou WebP de até 8 MB;
+- o proprietário pode avaliar de 1 a 5 estrelas, com média e quantidade de avaliações;
+- o botão **Gerar fluxograma do preparo** solicita ao modelo de imagem um infográfico das etapas salvas e guarda o resultado no bucket Supabase Storage `recipe-media`.
+
+### Ativação das mudanças
+
+As migrations abaixo estão versionadas no repositório e já foram aplicadas ao projeto Supabase Recistep conectado:
+- `supabase/migrations/20261017170000_recipe_layers_media_ratings.sql`
+- `supabase/migrations/20261017170100_recipe_confirmation_layers.sql`
+
+As migrations alteram `ingredients` e `recipes`, criam `recipe_ratings`, configuram políticas RLS por usuário, indexam avaliações e permitem SVG no bucket público `recipe-media`. As imagens de capa e fluxogramas ficam acessíveis por URL pública do Storage; não envie fotos privadas ou sensíveis.
+
+A variável de servidor `GEMINI_IMAGE_MODEL` é opcional e, por padrão, usa `gemini-3.1-flash-image`, modelo documentado pela API Gemini para geração de imagens. `GEMINI_API_KEY` deve continuar apenas no servidor. O nome `gemini-3.8-flash` usado para extração de texto não consta na documentação oficial consultada como modelo de geração de imagens; por isso a geração visual usa o modelo de imagem separado. Geração de fluxogramas tem limite de 3 solicitações por usuário por hora e uploads de capa, 20 por dia.
+
+As migrations são versionadas no repositório, mas **não são aplicadas automaticamente** ao projeto Supabase. Confirme a aplicação no projeto dedicado antes de testar as rotas; sem isso, a API pode responder com erro de coluna/tabela ausente.
