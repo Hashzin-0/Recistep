@@ -9,6 +9,7 @@ import {
   getSupabaseConfig,
   updateSourceImport,
 } from "@/lib/server/supabase-rest";
+import { findCachedRecipeByUrl, fingerprintRecipe, hashSourceUrl } from "@/lib/server/recipe-cache";
 
 export const runtime = "nodejs";
 
@@ -113,13 +114,21 @@ export async function POST(request: Request) {
   const idempotencyKey = headerKey || parsed.data.idempotency_key || randomUUID();
 
   try {
+    const canonicalSourceUrl = source.url.toString();
+    const sourceUrlHash = hashSourceUrl(canonicalSourceUrl);
+    let cacheHit = null;
+    try { cacheHit = await findCachedRecipeByUrl(canonicalSourceUrl); } catch { /* Cache failure must not block a valid import. */ }
+    const cachedRecipe = cacheHit?.recipe_draft ?? null;
+    const cachedFingerprint = cacheHit?.recipe_fingerprint ?? (cachedRecipe ? fingerprintRecipe(cachedRecipe as import("@/lib/schemas/recipe").RecipeExtraction) : null);
     const result = await createSourceImport({
       user_id: user.id,
-      source_url: source.url.toString(),
+      source_url: canonicalSourceUrl,
       platform: source.platform,
       locale: parsed.data.locale,
       servings_target: parsed.data.servings_target ?? null,
       idempotency_key: idempotencyKey,
+      source_url_hash: sourceUrlHash,
+      ...(cacheHit ? { status: "review_required" as const, recipe_draft: cachedRecipe, source_metadata: cacheHit.source_metadata, recipe_fingerprint: cachedFingerprint } : {}),
     });
     const record = result.record;
 
@@ -131,6 +140,10 @@ export async function POST(request: Request) {
       return NextResponse.json({
         error: { code: "IDEMPOTENCY_KEY_REUSED", message: "A chave já foi usada com parâmetros diferentes.", retryable: false },
       }, { status: 409 });
+    }
+
+    if (result.created && cacheHit) {
+      return NextResponse.json({ data: record, cache_hit: true }, { status: 200 });
     }
 
     if (!result.created && record.status !== "queued" &&
