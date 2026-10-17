@@ -776,7 +776,7 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 - Quantidades/tempos ausentes continuam nulos; a interface não inventa valores. O formulário e os estados de revisão receberam estilos responsivos compatíveis com o tema escuro.
 
 ### Verificação pendente
-- A migration `20261017000100_recipe_review_confirmation.sql` foi versionada, mas sua aplicação no Supabase e a validação da função RPC ainda precisam ser confirmadas.
+- A migration `20261017114621_recipe_review_confirmation.sql` foi versionada, mas sua aplicação no Supabase e a validação da função RPC ainda precisam ser confirmadas.
 - Executar testes, typecheck e build de produção no head da PR antes de integrar.
 - Validar um caso real de revisão e confirmação com uma conta autenticada, verificando os registros relacionados e a idempotência; não usar dados simulados como prova de integração.
 
