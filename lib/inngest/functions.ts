@@ -1,5 +1,6 @@
 import "server-only";
 import { inngest } from "@/lib/inngest/client";
+import { findCachedRecipeByTitle, fingerprintRecipe, hashSourceUrl, persistRecipeCache } from "@/lib/server/recipe-cache";
 import {
   getSourceImport,
   updateSourceImport,
@@ -81,7 +82,11 @@ export const processImportRequested = inngest.createFunction(
     }
 
     try {
-      const draft = await step.run("extract-recipe-from-public-youtube-video", async () =>
+      const titleCache = await step.run("lookup-recipe-by-normalized-title", async () => {
+        try { return await findCachedRecipeByTitle(metadata.title); }
+        catch { return null; }
+      });
+      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-youtube-video", async () =>
         extractRecipeFromYouTubeUrl({
           sourceUrl: record.source_url,
           locale: record.locale,
@@ -91,9 +96,15 @@ export const processImportRequested = inngest.createFunction(
       await step.run("persist-recipe-draft-for-review", async () => updateSourceImport(id, {
         status: "review_required",
         recipe_draft: draft,
+        source_url_hash: hashSourceUrl(record.source_url),
+        recipe_fingerprint: fingerprintRecipe(draft),
         error_code: null,
         error_message: null,
       }));
+      await step.run("cache-public-recipe-draft", async () => {
+        try { await persistRecipeCache({ sourceUrl: record.source_url, recipe: draft, sourceMetadata: metadata as unknown as Record<string, unknown> }); }
+        catch { /* Cache is an optimization; successful extraction remains valid without it. */ }
+      });
       return { id, status: "review_required" };
     } catch (error) {
       const code = error instanceof Error ? error.message : "GEMINI_EXTRACTION_FAILURE";
