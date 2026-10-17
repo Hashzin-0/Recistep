@@ -181,13 +181,3 @@ export async function getUserSourceImport(
   );
   return records[0] ?? null;
 }
-
-export async function saveSourceMetadata(id: string, metadata: SourceMetadata): Promise<void> {
-  await updateSourceImport(id, {
-    status: "source_content_required",
-    source_metadata: metadata,
-    error_code: "SOURCE_CONTENT_UNAVAILABLE",
-    error_message:
-      "Os metadados públicos foram obtidos, mas a transcrição/conteúdo da receita não está disponível por um conector autorizado.",
-  });
-}
