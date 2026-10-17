@@ -58,11 +58,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       "Organize as etapas verticalmente, mantenha texto curto e legível e não invente etapas ou ingredientes. Inclua todas as etapas fornecidas na ordem.",
       `Receita: ${title}`,
       ...steps.map((step, index) => `${index + 1}. ${step}`),
-    ].join("\\n");
+    ].join("\n");
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "text/plain", maxOutputTokens: 12000 } }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 12000 } }),
       signal: AbortSignal.timeout(90000),
     });
     const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] }[] }[]; error?: { message?: string } } | null;
@@ -70,7 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       console.error("[recipe-flowchart] Gemini rejected request", response.status, payload?.error?.message?.slice(0, 300));
       return NextResponse.json({ error: { code: "GEMINI_FLOWCHART_FAILED", message: "O Gemini não conseguiu gerar o fluxograma." } }, { status: 502 });
     }
-    const svgText = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\\n") ?? "";
+    const svgText = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
     const svg = sanitizeSvg(svgText);
     if (!svg) return NextResponse.json({ error: { code: "GEMINI_RETURNED_INVALID_SVG", message: "O Gemini não retornou um SVG válido e seguro. Tente novamente." } }, { status: 502 });
     const mime = "image/svg+xml";
