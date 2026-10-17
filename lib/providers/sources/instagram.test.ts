@@ -196,7 +196,7 @@ describe("instagramConnector", () => {
     };
     stubFetch([
       { match: "www.instagram.com/reel/BAAB/", respond: () => new Response(
-        \`<html><script>window._sharedData = \${JSON.stringify(sharedData)};</script></html>\`,
+        "<html><script>window._sharedData = " + JSON.stringify(sharedData) + ";</script></html>",
         { status: 200 },
       ) },
       { match: "oembed", respond: () => new Response("unavailable", { status: 404 }) },
