@@ -97,7 +97,7 @@ export const processImportRequested = inngest.createFunction(
       const code = error instanceof Error ? error.message : "GEMINI_EXTRACTION_FAILURE";
       if (error instanceof GeminiExtractionError && error.retryable) throw error;
 
-      if (["GEMINI_REQUEST_REJECTED_400", "UNSUPPORTED_SOURCE"].includes(code)) {
+      if (["GEMINI_VIDEO_UNAVAILABLE", "UNSUPPORTED_SOURCE"].includes(code)) {
         await step.run("request-transcript-fallback", async () => updateSourceImport(id, {
           status: "source_content_required",
           error_code: code,
