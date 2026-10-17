@@ -285,3 +285,36 @@ export async function confirmRecipeFromImport(input: {
   if (!row || typeof row.recipe_id !== "string") throw new Error("RECIPE_CONFIRMATION_EMPTY");
   return row;
 }
+
+export type ApiRateLimitResult = {
+  allowed: boolean;
+  count: number;
+  limit: number;
+  window_seconds: number;
+  retry_after_seconds: number;
+};
+
+export async function consumeApiRateLimit(input: {
+  userId: string;
+  route: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<ApiRateLimitResult> {
+  const result = await supabaseRequest<ApiRateLimitResult | ApiRateLimitResult[]>(
+    "rpc/consume_api_rate_limit",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        p_user_id: input.userId,
+        p_route_key: input.route,
+        p_limit: input.limit,
+        p_window_seconds: input.windowSeconds,
+      }),
+    },
+  );
+  const row = Array.isArray(result) ? result[0] : result;
+  if (!row || typeof row.allowed !== "boolean" || !Number.isFinite(row.retry_after_seconds)) {
+    throw new Error("RATE_LIMIT_RESPONSE_INVALID");
+  }
+  return row;
+}
