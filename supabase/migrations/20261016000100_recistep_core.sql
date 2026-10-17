@@ -91,8 +91,8 @@ alter table public.recipes enable row level security;
 alter table public.ingredients enable row level security;
 alter table public.preparation_steps enable row level security;
 
--- Imports are created/updated by trusted server code after validating the
--- Supabase access token. Authenticated users can only read/delete their rows.
+-- Import rows are accessed only by trusted server code after validating the
+-- Supabase access token. The Data API has no grants on this table.
 drop policy if exists "Users read own imports" on public.source_imports;
 create policy "Users read own imports"
   on public.source_imports for select to authenticated
