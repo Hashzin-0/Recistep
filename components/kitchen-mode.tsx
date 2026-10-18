@@ -23,7 +23,7 @@ const KITCHEN_TOOL_GROUPS = [defineToolGroup(KITCHEN_TOOLS)];
 
 function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]): SessionState {
   if (!value || typeof value !== "object") return emptySession;
-  const candidate = value as Partial<SessionState>;
+  const candidate = value as Partial<SessionState> & { timer?: unknown };
   const positions = new Set(steps.map((step) => step.position));
   const indexes = new Set(ingredients.map((_, index) => index));
   const completedSteps = Array.isArray(candidate.completedSteps) ? candidate.completedSteps.filter((n): n is number => Number.isInteger(n) && positions.has(n)) : [];
@@ -38,7 +38,7 @@ function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]):
       (timer.pausedRemainingSeconds === null || Number.isFinite(timer.pausedRemainingSeconds));
   };
   // Migra o formato antigo (um único timer) sem perder o preparo salvo.
-  const rawTimers = Array.isArray(candidate.timers) ? candidate.timers : candidate.timer ? [candidate.timer] : [];
+  const rawTimers: unknown[] = Array.isArray(candidate.timers) ? candidate.timers : candidate.timer ? [candidate.timer] : [];
   const timers = rawTimers.filter(isValidTimer).map((timer, index) => ({
     ...timer,
     id: typeof timer.id === "string" && timer.id ? timer.id : `timer-migrado-${timer.stepPosition}-${index}`,
@@ -262,7 +262,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
           />
         )}
         <section className="kitchen-panel" aria-label="Temporizadores da receita">
-          <div className="kitchen-section-title"><h4>Temporizadores</h4><span>{session.timers.length} ativos</span></div>
+          <div className="kitchen-section-title"><h4>Temporizadores</h4><span>{session.timers.length} na sessão</span></div>
           {session.timers.length > 0 && <div className="kitchen-timer-list">
             {session.timers.map((timer, index) => {
               const stepIndex = orderedSteps.findIndex((step) => step.position === timer.stepPosition);
