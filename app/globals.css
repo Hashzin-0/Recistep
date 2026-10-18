@@ -371,6 +371,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .kitchen-step-list li > .kitchen-temperature { color: #e8d3a0; font-size: 0.78rem; }
 .kitchen-complete-button { min-height: 2.4rem; border: 1px solid #3b4735; border-radius: 8px; padding: 0.45rem 0.7rem; background: #171e16; color: #d7dfcf; cursor: pointer; font: inherit; font-size: 0.78rem; }
 .kitchen-panel { min-width: 0; padding: 1rem; border: 1px solid #30392d; border-radius: 12px; background: #0c100c; }
+.kitchen-timer-list { display: grid; gap: 0.55rem; margin: 0.7rem 0 1rem; }
+.kitchen-timer-item { border: 1px solid #30392d; border-radius: 9px; padding: 0.5rem; background: #111610; }
+.kitchen-timer-item.selected { border-color: #d5f06d; }
+.kitchen-timer-select { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; border: 0; padding: 0.45rem; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.kitchen-timer-select span { display: grid; gap: 0.2rem; }
+.kitchen-timer-select small { color: #a0aa9a; font-size: 0.75rem; }
+.kitchen-timer-select > strong { font-variant-numeric: tabular-nums; font-size: 1.15rem; }
 .kitchen-timer-instruction { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; min-height: 3.8em; color: #a0aa9a; font-size: 0.82rem; line-height: 1.5; }
 .kitchen-clock { padding: 0.6rem 0 0.85rem; text-align: center; font-variant-numeric: tabular-nums; font-size: clamp(2.5rem, 7vw, 3.4rem); font-weight: 750; letter-spacing: -0.05em; }
 .kitchen-clock.expired { color: #ff9d87; }
