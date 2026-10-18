@@ -1,4 +1,5 @@
 export type CookingTimerState = {
+  id: string;
   stepPosition: number;
   durationSeconds: number;
   endsAt: number | null;
