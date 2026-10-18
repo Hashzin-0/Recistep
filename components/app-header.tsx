@@ -33,6 +33,7 @@ export function AppHeader() {
           <span>reci<span className="brand-light">step</span></span>
         </Link>
         <div className="header-right">
+          <div id="voice-assistant-slot" className="header-voice-slot" aria-label="Assistente de voz" />
           <div className="topbar-note"><span className="status-dot" /> Seu próximo prato começa aqui</div>
           {signedInEmail ? (
             <div className="header-user">
