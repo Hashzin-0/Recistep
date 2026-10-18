@@ -95,6 +95,37 @@ describe("executeKitchenTool — leitura", () => {
     expect(output.current_step.instruction).toBe("Misture os secos");
   });
 
+  it("builds a mise en place from recorded ingredients and notes without inventing prep", () => {
+    const { bridge } = makeBridge();
+    bridge.ingredients[1].notes = "separar em temperatura ambiente";
+    const output = run(bridge, "getMiseEnPlace") as Record<string, any>;
+    expect(output.success).toBe(true);
+    expect(output.ingredients_to_gather).toHaveLength(3);
+    expect(output.explicit_preparation_notes[0].note).toContain("temperatura ambiente");
+    expect(output.missing_quantities.map((item: any) => item.name)).toContain("Ovos");
+    expect(output.caveat).toContain("não especificados");
+  });
+
+  it("creates a shopping list without estimating missing quantities", () => {
+    const { bridge } = makeBridge();
+    const output = run(bridge, "getShoppingList") as Record<string, any>;
+    expect(output.item_count).toBe(3);
+    expect(output.items[0]).toMatchObject({ name: "Farinha de trigo", quantity_label: "200 g", missing_quantity: false });
+    expect(output.items[1]).toMatchObject({ name: "Ovos", quantity_label: "quantidade não informada", missing_quantity: true });
+    expect(output.caveat).toContain("não foram estimadas");
+  });
+
+  it("reviews missing fields and duplicate ingredient names without making safety claims", () => {
+    const { bridge } = makeBridge();
+    bridge.ingredients.push({ name: "ovos", quantity: 2, unit: "un", notes: null });
+    bridge.steps[1].duration_seconds = null;
+    const output = run(bridge, "reviewRecipe") as Record<string, any>;
+    expect(output.duplicate_ingredients).toHaveLength(1);
+    expect(output.findings.some((item: any) => item.type === "missing_quantity")).toBe(true);
+    expect(output.findings.some((item: any) => item.type === "missing_duration")).toBe(true);
+    expect(output.disclaimer).toContain("Não valida segurança alimentar");
+  });
+
   it("paginates steps and asks for getStep to read the full text", () => {
     const { bridge } = makeBridge();
     const output = run(bridge, "listSteps", { start_number: 2, count: 1 }) as Record<string, any>;
