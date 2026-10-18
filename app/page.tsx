@@ -45,7 +45,7 @@ function statusLabel(status: string): string {
 }
 
 export default function HomePage() {
-  const { supabase, accessToken, getAccessToken } = useAuth();
+  const { supabase, accessToken, getAccessToken, signedInEmail } = useAuth();
   const [sourceUrl, setSourceUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingTranscript, setIsSubmittingTranscript] = useState(false);
@@ -398,7 +398,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="site-shell page-main">
+    <main className={"site-shell page-main" + (signedInEmail ? " is-authenticated-workspace" : "")}>
       <section className="hero">
         <div className="hero-copy">
           <div className="eyebrow"><span className="eyebrow-line" /> SUA COZINHA, MAIS ORGANIZADA</div>
@@ -566,7 +566,7 @@ export default function HomePage() {
           </div>
           <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
         </div>
-        <VoiceAssistantHud
+        {signedInEmail && <VoiceAssistantHud
           contextLabel={reviewDraft ? "Edição da receita" : "Assistente de cozinha"}
           systemInstruction={reviewSystemInstruction || "Você é o assistente de voz do Recistep. Fale em português do Brasil, ajude com dúvidas sobre receitas e explique que ferramentas de edição ficam disponíveis quando uma receita estiver em revisão. Não invente dados de uma receita que ainda não foi importada."}
           toolGroups={reviewDraft ? REVIEW_TOOL_GROUPS : []}
@@ -574,7 +574,7 @@ export default function HomePage() {
           getAccessToken={getAccessToken}
           thinkingLevel="low"
           apiRef={reviewVoiceApiRef}
-        />
+        />}
       </section>
 
       <section className="workflow" aria-labelledby="workflow-heading">
