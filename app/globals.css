@@ -543,3 +543,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .recipe-media-tools > * { width: 100%; }
   .recipe-cover-image { max-height: 300px; }
 }
+
+
+/* Workspace autenticado: foco direto na importação, sem hero promocional nem rodapé. */
+.header-voice-slot { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex: 0 0 56px; }
+#voice-assistant-slot .voice-hud { position: static; display: flex; align-items: center; justify-items: center; gap: 0; width: 56px; height: 56px; }
+#voice-assistant-slot .voice-hud-error, #voice-assistant-slot .voice-hud-note { position: absolute; top: calc(100% + 8px); right: 0; width: min(20rem, 80vw); }
+#voice-assistant-slot .voice-orb { width: 56px; height: 56px; }
+.page-main.is-authenticated-workspace { padding-top: 26px; padding-bottom: 40px; }
+.page-main.is-authenticated-workspace .hero { display: block; min-height: 0; padding: 0; }
+.page-main.is-authenticated-workspace .hero-copy,
+.page-main.is-authenticated-workspace .workflow,
+.page-main.is-authenticated-workspace .footer { display: none; }
+.page-main.is-authenticated-workspace .import-card { width: min(100%, 900px); margin: 0 auto; padding: clamp(22px, 4vw, 38px); }
+.page-main.is-authenticated-workspace .import-card > .card-kicker { color: #c3df8a; }
+.page-main.is-authenticated-workspace .import-card > h2 { font-size: clamp(24px, 3vw, 34px); }
+.page-main.is-authenticated-workspace .sign-in-prompt { display: none; }
+.page-main.is-authenticated-workspace .import-card > .card-description { max-width: 620px; }
+@media (max-width: 680px) {
+  .header-voice-slot { width: 44px; height: 44px; flex-basis: 44px; }
+  #voice-assistant-slot .voice-hud { width: 44px; height: 44px; }
+  #voice-assistant-slot .voice-orb { width: 44px; height: 44px; }
+  .page-main.is-authenticated-workspace { padding-top: 18px; padding-bottom: 24px; }
+  .page-main.is-authenticated-workspace .import-card { padding: 20px 16px; }
+}
