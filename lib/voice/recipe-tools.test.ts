@@ -27,6 +27,7 @@ function makeActions(): KitchenVoiceActions {
     startTimer: vi.fn(() => "timer-test"),
     pauseOrResumeTimer: vi.fn(),
     resetTimer: vi.fn(),
+    selectTimer: vi.fn(),
     setNotice: vi.fn(),
   };
 }
