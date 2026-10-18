@@ -50,6 +50,8 @@ export default function HomePage() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingTranscript, setIsSubmittingTranscript] = useState(false);
+  const [selectedRecipeFile, setSelectedRecipeFile] = useState<File | null>(null);
+  const [isExtractingFile, setIsExtractingFile] = useState(false);
   const [feedback, setFeedback] = useState<ImportFeedback>(null);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [importRecord, setImportRecord] = useState<ImportRecord | null>(null);
@@ -429,6 +431,50 @@ export default function HomePage() {
     }
   }
 
+  async function handleFileRecipeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedRecipeFile) {
+      setFeedback({ kind: "error", message: "Selecione um PDF, imagem ou vídeo primeiro." });
+      return;
+    }
+    if (selectedRecipeFile.size > 4 * 1024 * 1024) {
+      setFeedback({ kind: "error", message: "O arquivo deve ter no máximo 4 MB. Para vídeos maiores, use um link compatível ou uma versão menor do arquivo." });
+      return;
+    }
+    const token = await getAccessToken();
+    if (!token) {
+      setFeedback({ kind: "error", message: "Entre na sua conta para importar um arquivo." });
+      return;
+    }
+
+    setIsExtractingFile(true);
+    setFeedback(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedRecipeFile);
+      formData.append("locale", "pt-BR");
+      const response = await fetch("/api/v1/recipes/extract-file", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+        body: formData,
+      });
+      const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível extrair a receita deste arquivo." });
+        return;
+      }
+      setVoiceRecipeDraft(body.data);
+      setVoiceRecipeMessage("Rascunho extraído do arquivo. Revise ingredientes, quantidades e etapas antes de salvar.");
+      setVoiceSavedRecipeId(null);
+      setSelectedRecipeFile(null);
+      setFeedback({ kind: "info", message: "Arquivo analisado. Revise o rascunho antes de salvar a receita." });
+    } catch {
+      setFeedback({ kind: "error", message: "Falha de conexão ao analisar o arquivo. Tente novamente." });
+    } finally {
+      setIsExtractingFile(false);
+    }
+  }
+
   async function handleTranscriptSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeImportId || !accessToken) {
@@ -518,6 +564,35 @@ export default function HomePage() {
             <p className="field-hint" id="supported-sources">
               YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
             </p>
+          </form>
+
+          <form className="file-recipe-import" onSubmit={handleFileRecipeSubmit}>
+            <label htmlFor="recipe-file">Ou importe um arquivo</label>
+            <p className="field-hint">PDF, imagem (JPG, PNG, WebP) ou vídeo (MP4, WebM, MOV), até 4 MB.</p>
+            <div className="file-recipe-controls">
+              <input
+                id="recipe-file"
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  setSelectedRecipeFile(file);
+                  if (file && file.size > 4 * 1024 * 1024) {
+                    setFeedback({ kind: "error", message: "O arquivo deve ter no máximo 4 MB." });
+                  } else if (file) {
+                    setFeedback(null);
+                  }
+                }}
+                disabled={isExtractingFile}
+                aria-describedby="recipe-file-help"
+              />
+              <button className="import-button" type="submit" disabled={!selectedRecipeFile || isExtractingFile}>
+                {isExtractingFile ? "Analisando arquivo…" : "Extrair receita"}
+              </button>
+            </div>
+            <span className="field-hint" id="recipe-file-help">
+              {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
+            </span>
           </form>
 
           <Link className="manual-create-link" href="/minhas-receitas/nova">

@@ -165,27 +165,41 @@ export function VoiceAssistantHud({
 
       {supported ? (
         <>
-          <VoiceOrb
-            status={state.status}
-            userVolume={busy ? state.userVolume : 0}
-            agentVolume={busy ? state.agentVolume : 0}
-            isMuted={state.isMuted}
-            interactive
-            size={orbSize}
-            label={busy ? orbLabel(state) : "Ativar assistente de voz"}
-            onClick={busy ? disconnect : connect}
-          />
-          {busy && (
-            <button
-              type="button"
-              className="auth-secondary-button voice-microphone-toggle"
-              onClick={toggleMute}
-              aria-pressed={state.isMuted}
-              aria-describedby={privacyId}
-            >
-              {state.isMuted ? "Ativar microfone" : "Silenciar microfone"}
-            </button>
-          )}
+          <div className="voice-orb-control">
+            <VoiceOrb
+              status={state.status}
+              userVolume={busy ? state.userVolume : 0}
+              agentVolume={busy ? state.agentVolume : 0}
+              isMuted={state.isMuted}
+              interactive
+              size={orbSize}
+              label={busy ? orbLabel(state) : "Ativar assistente de voz"}
+              onClick={busy ? disconnect : connect}
+            />
+            {busy && (
+              <button
+                type="button"
+                className="voice-microphone-toggle"
+                onClick={toggleMute}
+                aria-label={state.isMuted ? "Ativar microfone" : "Silenciar microfone"}
+                title={state.isMuted ? "Ativar microfone" : "Silenciar microfone"}
+                aria-pressed={state.isMuted}
+                aria-describedby={privacyId}
+              >
+                {state.isMuted ? (
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                    <path d="M5 11a7 7 0 0 0 12 4.9M19 11a7 7 0 0 1-1.1 3.8M12 19v3m-4 0h8M4 4l16 16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ) : (
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                    <rect x="9" y="2.5" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8"/>
+                    <path d="M5 10.5a7 7 0 0 0 14 0M12 17.5v4m-4 0h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         </>
       ) : (
         <p className="voice-hud-note" role="status">
