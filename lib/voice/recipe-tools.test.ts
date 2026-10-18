@@ -24,9 +24,10 @@ function makeActions(): KitchenVoiceActions {
     chooseStep: vi.fn(),
     toggleStepComplete: vi.fn(),
     toggleIngredient: vi.fn(),
-    startTimer: vi.fn(),
+    startTimer: vi.fn(() => "timer-test"),
     pauseOrResumeTimer: vi.fn(),
     resetTimer: vi.fn(),
+    selectTimer: vi.fn(),
     setNotice: vi.fn(),
   };
 }
@@ -48,7 +49,7 @@ function makeBridge(): { bridge: KitchenVoiceBridge; actions: KitchenVoiceAction
       { position: 2, instruction: "Bata a massa", duration_seconds: null, temperature_value: null, temperature_unit: null },
       { position: 3, instruction: "Asse", duration_seconds: 1_800, temperature_value: 180, temperature_unit: "C" },
     ],
-    session: { completedSteps: [], checkedIngredients: [], currentStep: 1, timer: null },
+    session: { completedSteps: [], checkedIngredients: [], currentStep: 1, timers: [], activeTimerId: null },
     timerRemainingSeconds: null,
     now: NOW,
     actions,
@@ -95,6 +96,37 @@ describe("executeKitchenTool — leitura", () => {
     expect(output.current_step.instruction).toBe("Misture os secos");
   });
 
+  it("builds a mise en place from recorded ingredients and notes without inventing prep", () => {
+    const { bridge } = makeBridge();
+    bridge.ingredients[1].notes = "separar em temperatura ambiente";
+    const output = run(bridge, "getMiseEnPlace") as Record<string, any>;
+    expect(output.success).toBe(true);
+    expect(output.ingredients_to_gather).toHaveLength(3);
+    expect(output.explicit_preparation_notes[0].note).toContain("temperatura ambiente");
+    expect(output.missing_quantities.map((item: any) => item.name)).toContain("Ovos");
+    expect(output.caveat).toContain("não especificados");
+  });
+
+  it("creates a shopping list without estimating missing quantities", () => {
+    const { bridge } = makeBridge();
+    const output = run(bridge, "getShoppingList") as Record<string, any>;
+    expect(output.item_count).toBe(3);
+    expect(output.items[0]).toMatchObject({ name: "Farinha de trigo", quantity_label: "200 g", missing_quantity: false });
+    expect(output.items[1]).toMatchObject({ name: "Ovos", quantity_label: "quantidade não informada", missing_quantity: true });
+    expect(output.caveat).toContain("não foram estimadas");
+  });
+
+  it("reviews missing fields and duplicate ingredient names without making safety claims", () => {
+    const { bridge } = makeBridge();
+    bridge.ingredients.push({ name: "ovos", quantity: 2, unit: "un", notes: null });
+    bridge.steps[1].duration_seconds = null;
+    const output = run(bridge, "reviewRecipe") as Record<string, any>;
+    expect(output.duplicate_ingredients).toHaveLength(1);
+    expect(output.findings.some((item: any) => item.type === "missing_quantity")).toBe(true);
+    expect(output.findings.some((item: any) => item.type === "missing_duration")).toBe(true);
+    expect(output.disclaimer).toContain("Não valida segurança alimentar");
+  });
+
   it("paginates steps and asks for getStep to read the full text", () => {
     const { bridge } = makeBridge();
     const output = run(bridge, "listSteps", { start_number: 2, count: 1 }) as Record<string, any>;
@@ -131,7 +163,8 @@ describe("executeKitchenTool — leitura", () => {
   it("exposes the timer as inactive when there is none", () => {
     const { bridge } = makeBridge();
     const output = run(bridge, "getTimerStatus") as Record<string, any>;
-    expect(output.timer).toEqual({ active: false });
+    expect(output.active_timer).toMatchObject({ active: false, active_count: 0 });
+    expect(output.timers).toEqual([]);
   });
 });
 
@@ -237,28 +270,56 @@ describe("executeKitchenTool — temporizador", () => {
 
   it("pauses a running timer using the bridge clock", () => {
     const { bridge, actions } = makeBridge();
-    bridge.session.timer = { stepPosition: 1, durationSeconds: 600, endsAt: NOW + 600_000, pausedRemainingSeconds: null };
+    bridge.session.timers = [{ id: "timer-a", stepPosition: 1, durationSeconds: 600, endsAt: NOW + 600_000, pausedRemainingSeconds: null }];
+    bridge.session.activeTimerId = "timer-a";
     bridge.timerRemainingSeconds = 600;
 
     const output = run(bridge, "pauseOrResumeTimer") as Record<string, any>;
-    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW);
+    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW, "timer-a");
     expect(output.timer.running).toBe(false);
     expect(output.message).toContain("pausado");
   });
 
   it("resumes a paused timer", () => {
     const { bridge, actions } = makeBridge();
-    bridge.session.timer = { stepPosition: 1, durationSeconds: 600, endsAt: null, pausedRemainingSeconds: 120 };
+    bridge.session.timers = [{ id: "timer-a", stepPosition: 1, durationSeconds: 600, endsAt: null, pausedRemainingSeconds: 120 }];
+    bridge.session.activeTimerId = "timer-a";
     const output = run(bridge, "pauseOrResumeTimer") as Record<string, any>;
-    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW);
+    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW, "timer-a");
     expect(output.timer.running).toBe(true);
     expect(output.message).toContain("retomado");
   });
 
+  it("adds a timer without replacing an existing timer", () => {
+    const { bridge, actions } = makeBridge();
+    bridge.session.timers = [{ id: "first", stepPosition: 1, durationSeconds: 300, endsAt: NOW + 300_000, pausedRemainingSeconds: null }];
+    bridge.session.activeTimerId = "first";
+    const output = run(bridge, "startTimer", { minutes: 2, step_number: 3 }) as Record<string, any>;
+    expect(actions.startTimer).toHaveBeenCalledWith(3, 120);
+    expect(output.timer.id).toBe("timer-test");
+    expect(output.timer.active_count).toBe(2);
+    expect(output.message).toContain("Outros temporizadores continuam ativos");
+  });
+
+  it("lists timers and pauses the requested timer by id", () => {
+    const { bridge, actions } = makeBridge();
+    bridge.session.timers = [
+      { id: "first", stepPosition: 1, durationSeconds: 300, endsAt: NOW + 300_000, pausedRemainingSeconds: null },
+      { id: "second", stepPosition: 3, durationSeconds: 120, endsAt: null, pausedRemainingSeconds: 60 },
+    ];
+    bridge.session.activeTimerId = "first";
+    const status = run(bridge, "getTimerStatus") as Record<string, any>;
+    expect(status.timers.map((timer: any) => timer.id)).toEqual(["first", "second"]);
+    const output = run(bridge, "pauseOrResumeTimer", { timer_id: "second" }) as Record<string, any>;
+    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW, "second");
+    expect(output.timer.id).toBe("second");
+    expect(output.timer.running).toBe(true);
+  });
+
   it("requires an active timer to pause or reset", () => {
     const { bridge, actions } = makeBridge();
-    expect(failure(run(bridge, "pauseOrResumeTimer"))).toContain("Não há temporizador");
-    expect(failure(run(bridge, "resetTimer"))).toContain("Não há temporizador");
+    expect(failure(run(bridge, "pauseOrResumeTimer"))).toContain("Não encontrei esse temporizador");
+    expect(failure(run(bridge, "resetTimer"))).toContain("Não encontrei esse temporizador");
     expect(actions.resetTimer).not.toHaveBeenCalled();
   });
 

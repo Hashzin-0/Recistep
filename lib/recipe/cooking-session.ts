@@ -1,4 +1,5 @@
 export type CookingTimerState = {
+  id: string;
   stepPosition: number;
   durationSeconds: number;
   endsAt: number | null;
@@ -19,12 +20,12 @@ export function remainingTimerSeconds(timer: CookingTimerState, nowMs: number): 
   return Math.max(0, Math.ceil((timer.endsAt - nowMs) / 1000));
 }
 
-export function createRunningTimer(stepPosition: number, durationSeconds: number, nowMs: number): CookingTimerState {
+export function createRunningTimer(stepPosition: number, durationSeconds: number, nowMs: number, id = `timer-${nowMs}-${stepPosition}`): CookingTimerState {
   if (!Number.isInteger(stepPosition) || stepPosition < 0) throw new RangeError("Etapa inválida.");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 604800) {
     throw new RangeError("O temporizador deve ter entre 1 segundo e 7 dias.");
   }
-  return { stepPosition, durationSeconds: Math.ceil(durationSeconds), endsAt: nowMs + Math.ceil(durationSeconds) * 1000, pausedRemainingSeconds: null };
+  return { id, stepPosition, durationSeconds: Math.ceil(durationSeconds), endsAt: nowMs + Math.ceil(durationSeconds) * 1000, pausedRemainingSeconds: null };
 }
 
 export function pauseTimer(timer: CookingTimerState, nowMs: number): CookingTimerState {

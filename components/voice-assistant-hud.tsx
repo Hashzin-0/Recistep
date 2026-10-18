@@ -67,7 +67,7 @@ function useOrbSize(): number {
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(max-width: 520px)");
-    const update = () => setSize(query.matches ? 104 : 132);
+    const update = () => setSize(document.getElementById("voice-assistant-slot") ? 56 : query.matches ? 104 : 132);
     update();
     if (typeof query.addEventListener === "function") {
       query.addEventListener("change", update);
@@ -202,5 +202,6 @@ export function VoiceAssistantHud({
     </div>
   );
 
-  return createPortal(hud, document.body);
+  const headerSlot = document.getElementById("voice-assistant-slot");
+  return createPortal(hud, headerSlot ?? document.body);
 }

@@ -8,6 +8,7 @@ import { ShoppingListPanel } from "@/components/recipe-planner";
 import { RecipeEditor } from "@/components/recipe-editor";
 import { KitchenMode } from "@/components/kitchen-mode";
 import { VoiceAssistantHud, type VoiceControlApi } from "@/components/voice-assistant-hud";
+import { VoiceTranscriptInput } from "@/components/voice-transcript-input";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildReviewSystemInstruction } from "@/lib/voice/prompts";
 import { RECIPE_EDIT_TOOLS, executeRecipeEditTool } from "@/lib/voice/recipe-tools";
@@ -45,7 +46,7 @@ function statusLabel(status: string): string {
 }
 
 export default function HomePage() {
-  const { supabase, accessToken, getAccessToken } = useAuth();
+  const { supabase, accessToken, getAccessToken, signedInEmail } = useAuth();
   const [sourceUrl, setSourceUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingTranscript, setIsSubmittingTranscript] = useState(false);
@@ -53,6 +54,12 @@ export default function HomePage() {
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [importRecord, setImportRecord] = useState<ImportRecord | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [voiceRecipeTranscript, setVoiceRecipeTranscript] = useState("");
+  const [voiceRecipeDraft, setVoiceRecipeDraft] = useState<RecipeExtraction | null>(null);
+  const [isExtractingVoiceRecipe, setIsExtractingVoiceRecipe] = useState(false);
+  const [isSavingVoiceRecipe, setIsSavingVoiceRecipe] = useState(false);
+  const [voiceRecipeMessage, setVoiceRecipeMessage] = useState<string | null>(null);
+  const [voiceSavedRecipeId, setVoiceSavedRecipeId] = useState<string | null>(null);
   const [reviewDraft, setReviewDraft] = useState<RecipeExtraction | null>(null);
   const [streamDraft, setStreamDraft] = useState<RecipeExtraction | null>(null);
   const [isSavingReview, setIsSavingReview] = useState(false);
@@ -208,6 +215,71 @@ export default function HomePage() {
       setStreamDraft(null);
     }
   }, [importRecord?.id, importRecord?.status, importRecord?.recipe_draft]);
+
+  async function extractVoiceRecipe(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedTranscript = voiceRecipeTranscript.trim();
+    if (normalizedTranscript.length < 80) {
+      setVoiceRecipeMessage("Fale ou escreva pelo menos 80 caracteres para gerar um rascunho útil.");
+      return;
+    }
+    const token = await getAccessToken();
+    if (!token) {
+      setVoiceRecipeMessage("Entre novamente para criar uma receita.");
+      return;
+    }
+    setIsExtractingVoiceRecipe(true);
+    setVoiceRecipeMessage(null);
+    setVoiceSavedRecipeId(null);
+    try {
+      const response = await fetch("/api/v1/recipes/extract-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ transcript: normalizedTranscript, locale: "pt-BR" }),
+      });
+      const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
+      if (!response.ok || !body.data) {
+        setVoiceRecipeMessage(body.error?.message ?? "Não foi possível transformar a fala em receita.");
+        return;
+      }
+      setVoiceRecipeDraft(body.data);
+      setVoiceRecipeMessage("Rascunho criado. Revise ingredientes, quantidades e etapas antes de salvar.");
+    } catch {
+      setVoiceRecipeMessage("Falha de conexão ao gerar a receita. Seu texto continua disponível para tentar novamente.");
+    } finally {
+      setIsExtractingVoiceRecipe(false);
+    }
+  }
+
+  async function saveVoiceRecipe() {
+    if (!voiceRecipeDraft) return;
+    const token = await getAccessToken();
+    if (!token) {
+      setVoiceRecipeMessage("Entre novamente para salvar a receita.");
+      return;
+    }
+    setIsSavingVoiceRecipe(true);
+    setVoiceRecipeMessage(null);
+    try {
+      const response = await fetch("/api/v1/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(voiceRecipeDraft),
+      });
+      const body = await response.json() as { data?: { id?: string }; error?: { message?: string } };
+      if (!response.ok || !body.data?.id) {
+        setVoiceRecipeMessage(body.error?.message ?? "Não foi possível salvar a receita.");
+        return;
+      }
+      setVoiceSavedRecipeId(body.data.id);
+      setVoiceRecipeDraft(null);
+      setVoiceRecipeMessage("Receita salva em Minhas receitas.");
+    } catch {
+      setVoiceRecipeMessage("Falha de conexão ao salvar. O rascunho continua disponível para tentar novamente.");
+    } finally {
+      setIsSavingVoiceRecipe(false);
+    }
+  }
 
   async function saveRecipeReview() {
     if (!activeImportId || !reviewDraft) return;
@@ -398,7 +470,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="site-shell page-main">
+    <main className={"site-shell page-main" + (signedInEmail ? " is-authenticated-workspace" : "")}>
       <section className="hero">
         <div className="hero-copy">
           <div className="eyebrow"><span className="eyebrow-line" /> SUA COZINHA, MAIS ORGANIZADA</div>
@@ -451,6 +523,44 @@ export default function HomePage() {
           <Link className="manual-create-link" href="/minhas-receitas/nova">
             Ou crie uma receita manualmente →
           </Link>
+
+          {signedInEmail && (
+            <section className="voice-recipe-workspace" aria-labelledby="voice-recipe-heading">
+              <span className="auth-label">SEM PRECISAR DE UM LINK</span>
+              <h3 id="voice-recipe-heading">Dite uma receita</h3>
+              <p className="field-hint">Conte os ingredientes, as quantidades e o preparo. O Recistep monta um rascunho para você revisar; informações que não forem ditas permanecem em aberto.</p>
+              <form onSubmit={extractVoiceRecipe}>
+                <VoiceTranscriptInput
+                  value={voiceRecipeTranscript}
+                  onChange={setVoiceRecipeTranscript}
+                  disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe}
+                />
+                <button className="import-button transcript-submit" type="submit" disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe || voiceRecipeTranscript.trim().length < 80}>
+                  {isExtractingVoiceRecipe ? "Montando rascunho…" : "Gerar rascunho da receita"}
+                </button>
+              </form>
+              {voiceRecipeMessage && (
+                <p className="field-hint" role="status" aria-live="polite">{voiceRecipeMessage}</p>
+              )}
+              {voiceSavedRecipeId && (
+                <p className="field-hint"><Link href={"/minhas-receitas/" + voiceSavedRecipeId}>Abrir receita salva →</Link></p>
+              )}
+              {voiceRecipeDraft && (
+                <div className="recipe-draft voice-recipe-draft">
+                  <h4>Revise antes de salvar</h4>
+                  <p className="field-hint">Confira o que foi reconhecido. Quantidades e tempos não informados não são inventados.</p>
+                  <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
+                  {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
+                  {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
+                  <div className="review-actions">
+                    <button className="import-button" type="button" onClick={saveVoiceRecipe} disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}>
+                      {isSavingVoiceRecipe ? "Salvando…" : "Salvar receita"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {feedback && (
             <div className={`feedback feedback-${feedback.kind}`} role="status" aria-live="polite">
@@ -566,7 +676,7 @@ export default function HomePage() {
           </div>
           <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
         </div>
-        <VoiceAssistantHud
+        {signedInEmail && <VoiceAssistantHud
           contextLabel={reviewDraft ? "Edição da receita" : "Assistente de cozinha"}
           systemInstruction={reviewSystemInstruction || "Você é o assistente de voz do Recistep. Fale em português do Brasil, ajude com dúvidas sobre receitas e explique que ferramentas de edição ficam disponíveis quando uma receita estiver em revisão. Não invente dados de uma receita que ainda não foi importada."}
           toolGroups={reviewDraft ? REVIEW_TOOL_GROUPS : []}
@@ -574,7 +684,7 @@ export default function HomePage() {
           getAccessToken={getAccessToken}
           thinkingLevel="low"
           apiRef={reviewVoiceApiRef}
-        />
+        />}
       </section>
 
       <section className="workflow" aria-labelledby="workflow-heading">

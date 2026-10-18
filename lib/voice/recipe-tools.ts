@@ -38,16 +38,18 @@ export interface KitchenSession {
   completedSteps: number[];
   checkedIngredients: number[];
   currentStep: number;
-  timer: CookingTimerState | null;
+  timers: CookingTimerState[];
+  activeTimerId: string | null;
 }
 
 export interface KitchenVoiceActions {
   chooseStep(position: number): void;
   toggleStepComplete(position: number): void;
   toggleIngredient(index: number): void;
-  startTimer(stepPosition: number, durationSeconds: number): void;
-  pauseOrResumeTimer(nowMs: number): void;
-  resetTimer(): void;
+  startTimer(stepPosition: number, durationSeconds: number): string;
+  pauseOrResumeTimer(nowMs: number, timerId?: string): void;
+  resetTimer(timerId?: string): void;
+  selectTimer(timerId: string): void;
   setNotice(message: string): void;
 }
 
@@ -134,12 +136,16 @@ function stepPayload(bridge: KitchenVoiceBridge, step: KitchenStep, includeInstr
   };
 }
 
-function timerPayload(bridge: KitchenVoiceBridge) {
-  const timer = bridge.session.timer;
-  if (!timer) return { active: false as const };
-  const remaining = bridge.timerRemainingSeconds ?? 0;
+function timerPayload(bridge: KitchenVoiceBridge, requestedId?: string) {
+  const timer = bridge.session.timers.find((candidate) => candidate.id === (requestedId ?? bridge.session.activeTimerId));
+  if (!timer) return { active: false as const, active_count: bridge.session.timers.length };
+  const remaining = Math.max(0, Math.ceil((timer.endsAt === null
+    ? timer.pausedRemainingSeconds ?? timer.durationSeconds
+    : (timer.endsAt - bridge.now) / 1000)));
   return {
     active: true as const,
+    id: timer.id,
+    active_count: bridge.session.timers.length,
     running: timer.endsAt !== null,
     step_number: stepNumber(bridge, timer.stepPosition),
     remaining_seconds: remaining,
@@ -157,7 +163,9 @@ function progressPayload(bridge: KitchenVoiceBridge) {
     checked_ingredients: bridge.session.checkedIngredients.length,
     total_ingredients: bridge.ingredients.length,
     current_step_number: currentStepNumber(bridge),
+    timers: bridge.session.timers.map((timer) => timerPayload(bridge, timer.id)),
     timer: timerPayload(bridge),
+    active_timer: timerPayload(bridge),
   };
 }
 
@@ -232,6 +240,18 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
       "Lista os ingredientes da receita com quantidade, unidade, observações e se já foram conferidos. Aceita um trecho opcional para filtrar por nome.",
   }),
   declareReadTool({
+    name: "getMiseEnPlace",
+    description: "Organiza a preparação antes de cozinhar: reúne os ingredientes e destaca apenas preparos explicitamente descritos nas notas dos ingredientes ou nas instruções. Não invente cortes ou pré-preparos.",
+  }),
+  declareReadTool({
+    name: "getShoppingList",
+    description: "Gera uma lista de compras desta receita com quantidades e unidades originais, destacando itens sem quantidade informada. Não agrega outras receitas nem estima quantidades.",
+  }),
+  declareReadTool({
+    name: "reviewRecipe",
+    description: "Faz uma revisão estrutural da receita atual, apontando porções, quantidades, tempos e temperaturas ausentes, ingredientes com nomes repetidos e etapas vazias. Não declara segurança alimentar nem altera a receita.",
+  }),
+  declareReadTool({
     name: "listSteps",
     description:
       "Lista as etapas do preparo em ordem, com tempo e temperatura quando existirem. Use start_number (1 = primeira etapa) e count para paginação.",
@@ -246,7 +266,7 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
   }),
   declareReadTool({
     name: "getTimerStatus",
-    description: "Devolve o estado atual do temporizador: se está rodando, parado, quanto tempo falta e de qual etapa.",
+    description: "Lista todos os temporizadores independentes e informa o selecionado, o estado, o tempo restante e a etapa de cada um.",
   }),
   declareTool({
     name: "goToStep",
@@ -295,11 +315,13 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
   }),
   declareTool({
     name: "pauseOrResumeTimer",
-    description: "Pausa o temporizador em execução ou retoma um temporizador pausado.",
+    description: "Pausa ou retoma um temporizador específico. Sem timer_id, usa o selecionado; use getTimerStatus para ver todos.",
+    properties: { timer_id: { type: "STRING", description: "ID retornado por getTimerStatus, opcional." } },
   }),
   declareTool({
     name: "resetTimer",
-    description: "Zera o temporizador atual.",
+    description: "Remove um temporizador específico. Sem timer_id, remove o selecionado.",
+    properties: { timer_id: { type: "STRING", description: "ID retornado por getTimerStatus, opcional." } },
   }),
   declareTool({
     name: "stopVoiceGuidance",
@@ -355,6 +377,87 @@ export function executeKitchenTool(
       };
     }
 
+    case "getMiseEnPlace": {
+      setActionLabel("Organizando a mise en place");
+      const missingQuantities = bridge.ingredients
+        .map((ingredient, index) => ({ ingredient, index }))
+        .filter(({ ingredient }) => ingredient.quantity === null)
+        .map(({ ingredient, index }) => ({ index, name: ingredient.name, note: ingredient.notes }));
+      const preparationNotes = bridge.ingredients
+        .map((ingredient, index) => ({ ingredient, index }))
+        .filter(({ ingredient }) => Boolean(ingredient.notes?.trim()))
+        .map(({ ingredient, index }) => ({ index, name: ingredient.name, note: ingredient.notes }));
+      const firstStep = bridge.steps[0] ?? null;
+      return {
+        success: true,
+        recipe: bridge.title,
+        ingredients_to_gather: bridge.ingredients.map((ingredient, index) => ingredientPayload(bridge, index)),
+        explicit_preparation_notes: preparationNotes,
+        missing_quantities: missingQuantities,
+        first_step: firstStep ? stepPayload(bridge, firstStep, true) : null,
+        caveat: "A lista só destaca preparos escritos na receita; confirme cortes, descongelamento e mise en place não especificados.",
+      };
+    }
+
+    case "getShoppingList": {
+      setActionLabel("Preparando a lista de compras");
+      return {
+        success: true,
+        recipe: bridge.title,
+        servings: bridge.servings,
+        item_count: bridge.ingredients.length,
+        items: bridge.ingredients.map((ingredient, index) => ({
+          index,
+          name: ingredient.name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit,
+          quantity_label: quantityLabel(ingredient),
+          missing_quantity: ingredient.quantity === null,
+          notes: ingredient.notes,
+          checked: bridge.session.checkedIngredients.includes(index),
+        })),
+        caveat: "Quantidades sem informação não foram estimadas. Esta lista cobre apenas esta receita.",
+      };
+    }
+
+    case "reviewRecipe": {
+      setActionLabel("Revisando a receita");
+      const normalizedNames = bridge.ingredients.map((ingredient) => normalize(ingredient.name));
+      const duplicateNames = [...new Set(normalizedNames.filter((name, index) => normalizedNames.indexOf(name) !== index))];
+      const duplicates = duplicateNames.map((name) => ({
+        normalized_name: name,
+        ingredients: bridge.ingredients
+          .map((ingredient, index) => ({ ingredient, index }))
+          .filter(({ ingredient }) => normalize(ingredient.name) === name)
+          .map(({ ingredient, index }) => ({ index, name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit })),
+      }));
+      const findings = [
+        ...(bridge.servings === null ? [{ type: "missing_servings", message: "Número de porções não informado." }] : []),
+        ...bridge.ingredients.filter((ingredient) => ingredient.quantity === null).map((ingredient) => ({
+          type: "missing_quantity", message: `Quantidade não informada: ${ingredient.name}.`,
+        })),
+        ...bridge.steps.filter((step) => !step.instruction.trim()).map((step) => ({
+          type: "empty_step", message: `Etapa ${stepNumber(bridge, step.position)} sem instrução.`,
+        })),
+        ...bridge.steps.filter((step) => step.duration_seconds === null).map((step) => ({
+          type: "missing_duration", message: `Tempo não informado na etapa ${stepNumber(bridge, step.position)}.`,
+        })),
+        ...bridge.steps.filter((step) => step.temperature_value === null && /forno|assar|ass(e|a|ar)|temperatura/i.test(step.instruction)).map((step) => ({
+          type: "check_temperature", message: `Confira se falta informar temperatura na etapa ${stepNumber(bridge, step.position)}.`,
+        })),
+      ];
+      return {
+        success: true,
+        recipe: bridge.title,
+        servings: bridge.servings,
+        ingredient_count: bridge.ingredients.length,
+        step_count: bridge.steps.length,
+        findings,
+        duplicate_ingredients: duplicates,
+        disclaimer: "Revisão estrutural baseada somente nos dados registrados. Não valida segurança alimentar, alergênicos, ponto de cocção nem substitui conferência humana.",
+      };
+    }
+
     case "listSteps": {
       setActionLabel("Lendo as etapas");
       const start = intArg(args, "start_number") ?? 1;
@@ -389,7 +492,7 @@ export function executeKitchenTool(
 
     case "getTimerStatus": {
       setActionLabel("Consultando o temporizador");
-      return { success: true, timer: timerPayload(bridge) };
+      return { success: true, active_timer: timerPayload(bridge), timers: bridge.session.timers.map((timer) => timerPayload(bridge, timer.id)) };
     }
 
     case "goToStep": {
@@ -490,39 +593,43 @@ export function executeKitchenTool(
       if (duration <= 0 || duration > 604_800) return fail("O tempo deve estar entre 1 segundo e 7 dias.");
 
       const durationSeconds = Math.ceil(duration);
-      actions.startTimer(step.position, durationSeconds);
+      const timerId = actions.startTimer(step.position, durationSeconds);
       setActionLabel(`Timer de ${formatDuration(durationSeconds)}`);
+      const timer = { ...createRunningTimer(step.position, durationSeconds, bridge.now), id: timerId };
       const preview = {
         ...bridge,
-        session: { ...bridge.session, timer: createRunningTimer(step.position, durationSeconds, bridge.now) },
+        session: { ...bridge.session, timers: [...bridge.session.timers, timer], activeTimerId: timerId },
       };
       return {
         success: true,
-        timer: timerPayload(preview),
-        message: `Temporizador de ${formatDuration(durationSeconds)} iniciado na etapa ${stepNumberArg}.`,
+        timer: timerPayload(preview, timerId),
+        message: `Temporizador ${bridge.session.timers.length + 1} de ${formatDuration(durationSeconds)} iniciado na etapa ${stepNumberArg}. Outros temporizadores continuam ativos.`,
       };
     }
 
     case "pauseOrResumeTimer": {
-      if (!bridge.session.timer) return fail("Não há temporizador ativo para pausar ou retomar.");
-      const paused = bridge.session.timer.endsAt === null;
-      actions.pauseOrResumeTimer(bridge.now);
-      const nextTimer = paused
-        ? resumeTimer(bridge.session.timer, bridge.now)
-        : pauseTimer(bridge.session.timer, bridge.now);
-      const preview = { ...bridge, session: { ...bridge.session, timer: nextTimer } };
+      const requestedId = stringArg(args, "timer_id") ?? bridge.session.activeTimerId;
+      const timer = bridge.session.timers.find((candidate) => candidate.id === requestedId);
+      if (!timer) return fail("Não encontrei esse temporizador. Use getTimerStatus para listar os IDs disponíveis.");
+      const paused = timer.endsAt === null;
+      actions.pauseOrResumeTimer(bridge.now, timer.id);
+      const nextTimer = paused ? resumeTimer(timer, bridge.now) : pauseTimer(timer, bridge.now);
+      const preview = { ...bridge, session: { ...bridge.session, timers: bridge.session.timers.map((item) => item.id === timer.id ? nextTimer : item) } };
       setActionLabel(paused ? "Retomando o timer" : "Pausando o timer");
       return {
         success: true,
-        timer: timerPayload(preview),
-        message: paused ? "Temporizador retomado." : "Temporizador pausado.",
+        timer: timerPayload(preview, timer.id),
+        message: paused ? "Temporizador retomado." : "Temporizador pausado. Os demais continuam como estavam.",
       };
     }
 
     case "resetTimer": {
-      if (!bridge.session.timer) return fail("Não há temporizador ativo.");
-      actions.resetTimer();
-      return { success: true, message: "Temporizador zerado." };
+      const requestedId = stringArg(args, "timer_id") ?? bridge.session.activeTimerId;
+      const timer = bridge.session.timers.find((candidate) => candidate.id === requestedId);
+      if (!timer) return fail("Não encontrei esse temporizador para zerar.");
+      actions.resetTimer(timer.id);
+      const timers = bridge.session.timers.filter((item) => item.id !== timer.id);
+      return { success: true, remaining_timers: timers.length, message: "Temporizador removido sem alterar os demais." };
     }
 
     case "stopVoiceGuidance": {
