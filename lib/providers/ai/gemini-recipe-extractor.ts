@@ -500,7 +500,7 @@ export async function extractRecipeFromUploadedFile(input: {
     throw new GeminiExtractionError("UNSUPPORTED_UPLOAD", false);
   }
 
-  const fileName = input.fileName.replace(/[\\/\r\n\0]/g, "_").slice(0, 160);
+  const fileName = input.fileName.replaceAll("/", "_").replaceAll("\\", "_").replace(/[\r\n\0]/g, "_").slice(0, 160);
   const prompt = [
     `Idioma de saída: ${input.locale || "pt-BR"}.`,
     `Arquivo fornecido pelo usuário: ${fileName}.`,
