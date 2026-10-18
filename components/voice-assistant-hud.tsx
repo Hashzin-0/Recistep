@@ -67,7 +67,10 @@ function useOrbSize(): number {
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(max-width: 520px)");
-    const update = () => setSize(document.getElementById("voice-assistant-slot") ? 56 : query.matches ? 104 : 132);
+    const update = () => {
+      const inHeader = Boolean(document.getElementById("voice-assistant-slot"));
+      setSize(inHeader ? (query.matches ? 44 : 56) : query.matches ? 104 : 132);
+    };
     update();
     if (typeof query.addEventListener === "function") {
       query.addEventListener("change", update);
