@@ -546,7 +546,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 
 /* Workspace autenticado: foco direto na importação, sem hero promocional nem rodapé. */
-.header-voice-slot { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex: 0 0 56px; }
+.header-voice-slot { position: relative; display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex: 0 0 56px; }
 #voice-assistant-slot .voice-hud { position: static; display: flex; align-items: center; justify-items: center; gap: 0; width: 56px; height: 56px; }
 #voice-assistant-slot .voice-hud-error, #voice-assistant-slot .voice-hud-note { position: absolute; top: calc(100% + 8px); right: 0; width: min(20rem, 80vw); }
 #voice-assistant-slot .voice-orb { width: 56px; height: 56px; }
@@ -567,3 +567,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .page-main.is-authenticated-workspace { padding-top: 18px; padding-bottom: 24px; }
   .page-main.is-authenticated-workspace .import-card { padding: 20px 16px; }
 }
+
+#voice-assistant-slot .voice-microphone-toggle { position: absolute; top: calc(100% + 8px); right: 0; white-space: nowrap; z-index: 45; }
