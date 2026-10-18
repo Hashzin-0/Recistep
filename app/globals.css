@@ -551,7 +551,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 #voice-assistant-slot .voice-hud-error, #voice-assistant-slot .voice-hud-note { position: absolute; top: calc(100% + 8px); right: 0; width: min(20rem, 80vw); }
 #voice-assistant-slot .voice-orb { width: 56px; height: 56px; }
 .page-main.is-authenticated-workspace { padding-top: 26px; padding-bottom: 40px; }
-.page-main.is-authenticated-workspace .hero { display: block; min-height: 0; padding: 0; }
+.page-main.is-authenticated-workspace .hero { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; padding: 0; }
 .page-main.is-authenticated-workspace .hero-copy,
 .page-main.is-authenticated-workspace .workflow,
 .page-main.is-authenticated-workspace .footer { display: none; }
