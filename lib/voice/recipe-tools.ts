@@ -164,6 +164,7 @@ function progressPayload(bridge: KitchenVoiceBridge) {
     total_ingredients: bridge.ingredients.length,
     current_step_number: currentStepNumber(bridge),
     timers: bridge.session.timers.map((timer) => timerPayload(bridge, timer.id)),
+    timer: timerPayload(bridge),
     active_timer: timerPayload(bridge),
   };
 }
@@ -491,7 +492,7 @@ export function executeKitchenTool(
 
     case "getTimerStatus": {
       setActionLabel("Consultando o temporizador");
-      return { success: true, timer: timerPayload(bridge) };
+      return { success: true, active_timer: timerPayload(bridge), timers: bridge.session.timers.map((timer) => timerPayload(bridge, timer.id)) };
     }
 
     case "goToStep": {
