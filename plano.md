@@ -830,3 +830,134 @@ Atualizar esta seção a cada etapa concluída com commit/PR, arquivos alterados
 
 ### Validação
 - O probe de servidor confirmou os bloqueios acima a partir de um IP de datacenter.
+
+
+---
+
+## Plano de evolução — Workspace autenticado e agente de voz
+
+**Estado:** planejado; não interpretar os itens abaixo como funcionalidades já implementadas. Esta seção complementa os 14 critérios originais e deve ser atualizada conforme cada entrega verificável.
+
+### 1. Experiência pública e workspace autenticado
+
+- Preservar a landing page atual para visitantes não autenticados, incluindo hero, apresentação dos recursos e rodapé.
+- Para sessões autenticadas, apresentar na rota inicial um workspace de importação sem hero promocional e sem rodapé.
+- Manter a navegação de receitas, lista de compras e conta no Header.
+- Exibir no Header a orb única do agente de voz, com estados de conexão, escuta, processamento, fala, microfone silenciado e erro.
+- Evitar sessões Live duplicadas quando o usuário navega entre páginas; manter um único proprietário do ciclo de vida da sessão e fornecer contexto atual por interfaces explícitas.
+- Cobrir estados de autenticação inicial, sessão expirada, carregamento, erro e logout; não renderizar dados privados antes da confirmação da sessão.
+
+### 2. Formas de importação no workspace
+
+O workspace deverá oferecer entradas separadas, sem prometer suporte antes de existir um pipeline real para cada formato:
+
+1. **Link:** reutilizar `POST /api/v1/imports`, o registry de fontes e o pipeline assíncrono existente.
+2. **Arquivo de documento:** PDF, DOC/DOCX e outros formatos que forem efetivamente validados e suportados. Implementar upload autenticado, limite de tamanho, validação de MIME/assinatura, armazenamento privado temporário e extração de texto.
+3. **Vídeo local:** receber arquivo por fluxo autenticado e processar apenas formatos, durações e tamanhos aceitos. Não depender de disco local persistente ou de execução longa em uma função serverless da Vercel.
+4. **Imagem:** aceitar formatos raster explicitamente permitidos, validar tamanho/dimensões e usar visão do provedor de IA para extrair texto e estrutura da receita.
+5. **Texto colado:** validar e enviar o conteúdo para o fluxo de extração existente, sem persistir transcrição bruta em histórico de Inngest ou logs.
+6. **Transcrição por voz:** permitir que o usuário dite a receita pelo microfone do celular ou desktop. Solicitar permissão apenas após ação explícita; indicar gravação ativa; oferecer pausar, retomar, corrigir texto e confirmar antes de enviar. Usar reconhecimento de fala do navegador quando suportado, com fallback de entrada por texto e mensagens de compatibilidade. Não afirmar que o áudio é gravado ou enviado ao servidor quando apenas o texto reconhecido é usado.
+7. **Receita construída por conversa de voz:** permitir que o agente conduza uma entrevista incremental e monte um rascunho estruturado, pedindo título, porções, ingredientes, quantidades, unidades, preparo e tempos em etapas. O usuário pode responder oralmente ou por texto, corrigir respostas e pausar/retomar. Campos não informados permanecem desconhecidos; não inventar quantidades nem tempos.
+
+Todos os métodos devem convergir para o mesmo schema estrito de receita e para o estado de revisão humana. Uma extração por IA nunca confirma ou publica uma receita automaticamente.
+
+### 3. Agente de voz — capacidades selecionadas
+
+#### 3.1 Ajuste de porções
+
+- Expor a ferramenta determinística de escala já existente ao contexto de cozinha e revisão.
+- Informar a porção de origem e a porção de destino.
+- Preservar ingredientes com quantidades ausentes, unidades incompatíveis ou valores descritivos sem conversão segura.
+- Atualizar a interface e o resumo falado somente após confirmar o resultado da ferramenta.
+
+#### 3.2 Substituições com evidência e proteção contra alergênicos
+
+- Buscar receitas semelhantes às quais o usuário tenha permissão de acesso e comparar variantes com diferenças explícitas de um, dois ou três ingredientes.
+- Indexar por identidade normalizada da receita, ingredientes e etapa do preparo; registrar quais ingredientes foram alterados, em qual etapa e quais evidências sustentam a sugestão.
+- Separar substituições observadas em variantes de receitas de sugestões geradas pelo modelo. Mostrar a origem, a diferença e o nível de confiança; nunca alegar que uma substituição foi testada se isso não estiver documentado.
+- Projetar consulta agregada/privada para não revelar receitas, identificadores, perfis, avaliações ou conteúdo privado de outros usuários. Só usar dados de outros usuários que tenham sido explicitamente disponibilizados para esse propósito; preferir estatísticas agregadas ou variantes públicas consentidas.
+- Tratar alergias como restrições críticas: perguntar quais alérgenos devem ser evitados quando necessário, procurar o ingrediente e seus sinônimos em todos os componentes/etapas, avisar sobre contaminação cruzada e não prometer segurança alimentar. Se houver dúvida ou falta de dados, não recomendar a substituição como segura e orientar a conferência do rótulo/fonte.
+- Nunca inferir que ausência de um ingrediente na receita estruturada significa ausência de traços, contato cruzado ou alérgeno em produto industrializado.
+
+#### 3.3 Organização do preparo
+
+- Gerar uma mise en place baseada somente nos ingredientes e etapas disponíveis.
+- Agrupar preparações independentes quando a dependência entre etapas permitir; indicar equipamentos, utensílios e preparos antecipados.
+- Não alterar a sequência quando houver dependência técnica (por exemplo, descanso, resfriamento ou cocção).
+- Distinguir duração declarada, duração estimada e duração desconhecida.
+
+#### 3.4 Temporizadores múltiplos
+
+- Permitir vários temporizadores simultâneos, cada um com identificador estável, rótulo, etapa associada, duração, estado e horário de referência.
+- Suportar iniciar, pausar, retomar, cancelar e consultar individualmente; comandos ambíguos devem pedir qual temporizador.
+- Manter a verdade temporal no estado do aplicativo, não no modelo. Emitir avisos de conclusão com deduplicação e permitir retomar a sessão após troca de rota ou suspensão do navegador, sem alegar precisão quando o sistema operacional limitar execução em segundo plano.
+
+#### 3.5 Navegação por etapas
+
+- Permitir ir para a etapa anterior/próxima, repetir a instrução, consultar ingredientes e marcar uma etapa como concluída por voz.
+- Não avançar automaticamente sem confirmação do usuário, salvo se ele habilitar explicitamente esse comportamento.
+- Associar temporizadores à etapa correta e preservar a etapa atual.
+
+#### 3.6 Receita criada por entrevista de voz
+
+- Implementar uma máquina de estados de conversa para título, porções, ingredientes, quantidades/unidades, etapas, temperaturas e tempos.
+- Perguntar um campo por vez; permitir “não sei”, “pular”, “corrigir”, “voltar” e “ler o que temos”.
+- Repetir o resumo estruturado e pedir confirmação antes de abrir o editor de revisão.
+- Salvar o progresso como rascunho recuperável, com autorização do usuário, sem registrar áudio bruto por padrão.
+- Aplicar o schema Zod da receita como contrato de validação. Campos faltantes ficam explicitamente vazios ou incertos.
+
+#### 3.7 Revisão inteligente
+
+- Identificar quantidades, unidades, porções, tempos ou instruções ausentes, inconsistências e etapas ambíguas.
+- Fazer perguntas objetivas em vez de completar lacunas com valores inventados.
+- Distinguir fato extraído da fonte, resposta declarada pelo usuário e sugestão inferida pelo modelo.
+- Mostrar avisos e incertezas no editor antes de permitir a confirmação.
+
+#### 3.8 Lista de compras
+
+- Permitir adicionar ingredientes de uma receita ou de várias receitas à lista existente por comando de voz.
+- Normalizar nomes e unidades para detectar duplicatas; só somar quantidades quando unidades e semântica forem compatíveis.
+- Pedir esclarecimento em conflitos e nunca sobrescrever silenciosamente quantidades já confirmadas pelo usuário.
+
+#### 3.9 Interrupção e retomada
+
+- Permitir interromper a fala do agente, silenciar/reativar o microfone e retomar a última intenção ou instrução sem reiniciar o fluxo.
+- Manter contexto de receita, etapa, entrevista, temporizadores e ferramenta pendente fora do texto transitório do modelo.
+- Distinguir interrupção de fala, pausa do microfone e desconexão da sessão.
+- Ao reconectar, reconstruir o contexto a partir do estado validado da aplicação; não assumir que o modelo reteve o histórico da sessão anterior.
+
+### 4. Contratos, persistência e segurança
+
+- Reutilizar os schemas e ferramentas existentes quando adequados; atualizar em conjunto schema Zod, esquema de saída Gemini, tipos, persistência e testes quando houver novos campos.
+- Para uploads, criar migrations versionadas, políticas de Storage/RLS e regras de expiração/remoção de arquivos temporários. Nunca tornar arquivos privados públicos para simplificar o acesso.
+- Toda rota protegida valida token, propriedade do recurso, limite de tamanho e rate limit no servidor. Não confiar em IDs, MIME types ou restrições de UI fornecidos pelo cliente.
+- Proteger endpoints de upload contra SSRF, redirects inseguros, arquivos poliglotas, payloads excessivos e consumo abusivo de recursos.
+- Para pesquisa de variantes, aplicar isolamento por usuário e política explícita de consentimento/visibilidade; não expor dados privados em embeddings, resultados de busca, prompts ou logs.
+- Armazenar preferências de alergia apenas com finalidade explícita, acesso restrito e controles de edição/exclusão. Não tratá-las como diagnóstico médico.
+- Áudio bruto não deve ser persistido por padrão. Se futuramente houver gravação, ela exigirá indicação clara, finalidade, consentimento e política de retenção.
+- Usar processamento assíncrono durável para operações longas e compatíveis com Vercel; não depender de processos persistentes ou armazenamento local efêmero como fonte de verdade.
+
+### 5. Testes e critérios de aceite
+
+- Autenticação: visitante vê landing page; usuário autenticado vê workspace; logout retorna à experiência pública; nenhum dado privado aparece durante carregamento.
+- Header/voz: uma única sessão ativa entre rotas; estados acessíveis; permissões de microfone negadas, reconexão, interrupção e retomada testadas.
+- Porções: escala exata para unidades compatíveis e preservação de quantidades desconhecidas/incompatíveis.
+- Substituições: correspondência de variantes com 1–3 ingredientes diferentes, atribuição correta à etapa, ausência de vazamento entre usuários e tratamento conservador de alergênicos.
+- Entrevista por voz: fluxo completo com perguntas por campo, correção, pausa/retomada, validação Zod e revisão humana obrigatória.
+- Temporizadores: múltiplos relógios simultâneos, pausa, retomada, cancelamento, conclusão e ausência de avisos duplicados.
+- Lista de compras: deduplicação sem somar unidades incompatíveis.
+- Transcrição por microfone: permissões concedidas/negadas, navegadores sem suporte, edição do texto reconhecido e fallback manual.
+- Importação de documentos, vídeo e imagem: tipos válidos/inválidos, limite de tamanho, falhas do provedor, timeout, limpeza de temporários e isolamento de arquivos.
+- Executar `npm test`, `npm run typecheck` e `npm run build`; verificar migrations/RLS com os recursos reais disponíveis antes de considerar qualquer etapa concluída.
+
+### 6. Ordem recomendada de entrega
+
+1. Workspace autenticado e Header com ciclo de vida único da orb.
+2. Entrada por texto e transcrição via microfone, convergindo para o schema de receita.
+3. Ajuste de porções, navegação por etapas e temporizadores múltiplos.
+4. Entrevista de voz para criar receitas e revisão inteligente.
+5. Lista de compras por voz e interrupção/retomada resiliente.
+6. Upload de imagem/documentos/vídeo com processamento real e limites explícitos.
+7. Busca de variantes e substituições com controles de privacidade e salvaguardas para alergênicos.
+
+Cada etapa deve ser entregue em commits pequenos, coberta por testes e medida pelo comportamento realmente verificado, não pela presença de botões ou prompts.
