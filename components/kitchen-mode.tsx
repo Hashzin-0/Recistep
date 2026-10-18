@@ -159,7 +159,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
     if (result?.outcome === "accepted") setNotice("Instalação solicitada pelo navegador.");
     setInstallPrompt(null);
   }
-  const timerExpired = session.timer !== null && timerRemaining === 0;
+
 
   const systemInstruction = useMemo(
     () =>
