@@ -232,6 +232,18 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
       "Lista os ingredientes da receita com quantidade, unidade, observações e se já foram conferidos. Aceita um trecho opcional para filtrar por nome.",
   }),
   declareReadTool({
+    name: "getMiseEnPlace",
+    description: "Organiza a preparação antes de cozinhar: reúne os ingredientes e destaca apenas preparos explicitamente descritos nas notas dos ingredientes ou nas instruções. Não invente cortes ou pré-preparos.",
+  }),
+  declareReadTool({
+    name: "getShoppingList",
+    description: "Gera uma lista de compras desta receita com quantidades e unidades originais, destacando itens sem quantidade informada. Não agrega outras receitas nem estima quantidades.",
+  }),
+  declareReadTool({
+    name: "reviewRecipe",
+    description: "Faz uma revisão estrutural da receita atual, apontando porções, quantidades, tempos e temperaturas ausentes, ingredientes com nomes repetidos e etapas vazias. Não declara segurança alimentar nem altera a receita.",
+  }),
+  declareReadTool({
     name: "listSteps",
     description:
       "Lista as etapas do preparo em ordem, com tempo e temperatura quando existirem. Use start_number (1 = primeira etapa) e count para paginação.",
@@ -352,6 +364,87 @@ export function executeKitchenTool(
         found: target === null,
         ...(target ? { query, match_count: indexes.length } : {}),
         ingredients: indexes.slice(0, 60).map((index) => ingredientPayload(bridge, index)),
+      };
+    }
+
+    case "getMiseEnPlace": {
+      setActionLabel("Organizando a mise en place");
+      const missingQuantities = bridge.ingredients
+        .map((ingredient, index) => ({ ingredient, index }))
+        .filter(({ ingredient }) => ingredient.quantity === null)
+        .map(({ ingredient, index }) => ({ index, name: ingredient.name, note: ingredient.notes }));
+      const preparationNotes = bridge.ingredients
+        .map((ingredient, index) => ({ ingredient, index }))
+        .filter(({ ingredient }) => Boolean(ingredient.notes?.trim()))
+        .map(({ ingredient, index }) => ({ index, name: ingredient.name, note: ingredient.notes }));
+      const firstStep = bridge.steps[0] ?? null;
+      return {
+        success: true,
+        recipe: bridge.title,
+        ingredients_to_gather: bridge.ingredients.map((ingredient, index) => ingredientPayload(bridge, index)),
+        explicit_preparation_notes: preparationNotes,
+        missing_quantities: missingQuantities,
+        first_step: firstStep ? stepPayload(bridge, firstStep, true) : null,
+        caveat: "A lista só destaca preparos escritos na receita; confirme cortes, descongelamento e mise en place não especificados.",
+      };
+    }
+
+    case "getShoppingList": {
+      setActionLabel("Preparando a lista de compras");
+      return {
+        success: true,
+        recipe: bridge.title,
+        servings: bridge.servings,
+        item_count: bridge.ingredients.length,
+        items: bridge.ingredients.map((ingredient, index) => ({
+          index,
+          name: ingredient.name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit,
+          quantity_label: quantityLabel(ingredient),
+          missing_quantity: ingredient.quantity === null,
+          notes: ingredient.notes,
+          checked: bridge.session.checkedIngredients.includes(index),
+        })),
+        caveat: "Quantidades sem informação não foram estimadas. Esta lista cobre apenas esta receita.",
+      };
+    }
+
+    case "reviewRecipe": {
+      setActionLabel("Revisando a receita");
+      const normalizedNames = bridge.ingredients.map((ingredient) => normalize(ingredient.name));
+      const duplicateNames = [...new Set(normalizedNames.filter((name, index) => normalizedNames.indexOf(name) !== index))];
+      const duplicates = duplicateNames.map((name) => ({
+        normalized_name: name,
+        ingredients: bridge.ingredients
+          .map((ingredient, index) => ({ ingredient, index }))
+          .filter(({ ingredient }) => normalize(ingredient.name) === name)
+          .map(({ ingredient, index }) => ({ index, name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit })),
+      }));
+      const findings = [
+        ...(bridge.servings === null ? [{ type: "missing_servings", message: "Número de porções não informado." }] : []),
+        ...bridge.ingredients.filter((ingredient) => ingredient.quantity === null).map((ingredient) => ({
+          type: "missing_quantity", message: `Quantidade não informada: ${ingredient.name}.`,
+        })),
+        ...bridge.steps.filter((step) => !step.instruction.trim()).map((step) => ({
+          type: "empty_step", message: `Etapa ${stepNumber(bridge, step.position)} sem instrução.`,
+        })),
+        ...bridge.steps.filter((step) => step.duration_seconds === null).map((step) => ({
+          type: "missing_duration", message: `Tempo não informado na etapa ${stepNumber(bridge, step.position)}.`,
+        })),
+        ...bridge.steps.filter((step) => step.temperature_value === null && /forno|assar|ass(e|a|ar)|temperatura/i.test(step.instruction)).map((step) => ({
+          type: "check_temperature", message: `Confira se falta informar temperatura na etapa ${stepNumber(bridge, step.position)}.`,
+        })),
+      ];
+      return {
+        success: true,
+        recipe: bridge.title,
+        servings: bridge.servings,
+        ingredient_count: bridge.ingredients.length,
+        step_count: bridge.steps.length,
+        findings,
+        duplicate_ingredients: duplicates,
+        disclaimer: "Revisão estrutural baseada somente nos dados registrados. Não valida segurança alimentar, alergênicos, ponto de cocção nem substitui conferência humana.",
       };
     }
 
