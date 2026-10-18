@@ -38,16 +38,18 @@ export interface KitchenSession {
   completedSteps: number[];
   checkedIngredients: number[];
   currentStep: number;
-  timer: CookingTimerState | null;
+  timers: CookingTimerState[];
+  activeTimerId: string | null;
 }
 
 export interface KitchenVoiceActions {
   chooseStep(position: number): void;
   toggleStepComplete(position: number): void;
   toggleIngredient(index: number): void;
-  startTimer(stepPosition: number, durationSeconds: number): void;
-  pauseOrResumeTimer(nowMs: number): void;
-  resetTimer(): void;
+  startTimer(stepPosition: number, durationSeconds: number): string;
+  pauseOrResumeTimer(nowMs: number, timerId?: string): void;
+  resetTimer(timerId?: string): void;
+  selectTimer(timerId: string): void;
   setNotice(message: string): void;
 }
 
@@ -134,12 +136,16 @@ function stepPayload(bridge: KitchenVoiceBridge, step: KitchenStep, includeInstr
   };
 }
 
-function timerPayload(bridge: KitchenVoiceBridge) {
-  const timer = bridge.session.timer;
-  if (!timer) return { active: false as const };
-  const remaining = bridge.timerRemainingSeconds ?? 0;
+function timerPayload(bridge: KitchenVoiceBridge, requestedId?: string) {
+  const timer = bridge.session.timers.find((candidate) => candidate.id === (requestedId ?? bridge.session.activeTimerId));
+  if (!timer) return { active: false as const, active_count: bridge.session.timers.length };
+  const remaining = Math.max(0, Math.ceil((timer.endsAt === null
+    ? timer.pausedRemainingSeconds ?? timer.durationSeconds
+    : (timer.endsAt - bridge.now) / 1000)));
   return {
     active: true as const,
+    id: timer.id,
+    active_count: bridge.session.timers.length,
     running: timer.endsAt !== null,
     step_number: stepNumber(bridge, timer.stepPosition),
     remaining_seconds: remaining,
@@ -157,7 +163,8 @@ function progressPayload(bridge: KitchenVoiceBridge) {
     checked_ingredients: bridge.session.checkedIngredients.length,
     total_ingredients: bridge.ingredients.length,
     current_step_number: currentStepNumber(bridge),
-    timer: timerPayload(bridge),
+    timers: bridge.session.timers.map((timer) => timerPayload(bridge, timer.id)),
+    active_timer: timerPayload(bridge),
   };
 }
 
@@ -258,7 +265,7 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
   }),
   declareReadTool({
     name: "getTimerStatus",
-    description: "Devolve o estado atual do temporizador: se está rodando, parado, quanto tempo falta e de qual etapa.",
+    description: "Lista todos os temporizadores independentes e informa o selecionado, o estado, o tempo restante e a etapa de cada um.",
   }),
   declareTool({
     name: "goToStep",
@@ -307,11 +314,13 @@ export const KITCHEN_TOOLS: FunctionDeclaration[] = [
   }),
   declareTool({
     name: "pauseOrResumeTimer",
-    description: "Pausa o temporizador em execução ou retoma um temporizador pausado.",
+    description: "Pausa ou retoma um temporizador específico. Sem timer_id, usa o selecionado; use getTimerStatus para ver todos.",
+    properties: { timer_id: { type: "STRING", description: "ID retornado por getTimerStatus, opcional." } },
   }),
   declareTool({
     name: "resetTimer",
-    description: "Zera o temporizador atual.",
+    description: "Remove um temporizador específico. Sem timer_id, remove o selecionado.",
+    properties: { timer_id: { type: "STRING", description: "ID retornado por getTimerStatus, opcional." } },
   }),
   declareTool({
     name: "stopVoiceGuidance",
@@ -583,39 +592,43 @@ export function executeKitchenTool(
       if (duration <= 0 || duration > 604_800) return fail("O tempo deve estar entre 1 segundo e 7 dias.");
 
       const durationSeconds = Math.ceil(duration);
-      actions.startTimer(step.position, durationSeconds);
+      const timerId = actions.startTimer(step.position, durationSeconds);
       setActionLabel(`Timer de ${formatDuration(durationSeconds)}`);
+      const timer = { ...createRunningTimer(step.position, durationSeconds, bridge.now), id: timerId };
       const preview = {
         ...bridge,
-        session: { ...bridge.session, timer: createRunningTimer(step.position, durationSeconds, bridge.now) },
+        session: { ...bridge.session, timers: [...bridge.session.timers, timer], activeTimerId: timerId },
       };
       return {
         success: true,
-        timer: timerPayload(preview),
-        message: `Temporizador de ${formatDuration(durationSeconds)} iniciado na etapa ${stepNumberArg}.`,
+        timer: timerPayload(preview, timerId),
+        message: `Temporizador ${bridge.session.timers.length + 1} de ${formatDuration(durationSeconds)} iniciado na etapa ${stepNumberArg}. Outros temporizadores continuam ativos.`,
       };
     }
 
     case "pauseOrResumeTimer": {
-      if (!bridge.session.timer) return fail("Não há temporizador ativo para pausar ou retomar.");
-      const paused = bridge.session.timer.endsAt === null;
-      actions.pauseOrResumeTimer(bridge.now);
-      const nextTimer = paused
-        ? resumeTimer(bridge.session.timer, bridge.now)
-        : pauseTimer(bridge.session.timer, bridge.now);
-      const preview = { ...bridge, session: { ...bridge.session, timer: nextTimer } };
+      const requestedId = stringArg(args, "timer_id") ?? bridge.session.activeTimerId;
+      const timer = bridge.session.timers.find((candidate) => candidate.id === requestedId);
+      if (!timer) return fail("Não encontrei esse temporizador. Use getTimerStatus para listar os IDs disponíveis.");
+      const paused = timer.endsAt === null;
+      actions.pauseOrResumeTimer(bridge.now, timer.id);
+      const nextTimer = paused ? resumeTimer(timer, bridge.now) : pauseTimer(timer, bridge.now);
+      const preview = { ...bridge, session: { ...bridge.session, timers: bridge.session.timers.map((item) => item.id === timer.id ? nextTimer : item) } };
       setActionLabel(paused ? "Retomando o timer" : "Pausando o timer");
       return {
         success: true,
-        timer: timerPayload(preview),
-        message: paused ? "Temporizador retomado." : "Temporizador pausado.",
+        timer: timerPayload(preview, timer.id),
+        message: paused ? "Temporizador retomado." : "Temporizador pausado. Os demais continuam como estavam.",
       };
     }
 
     case "resetTimer": {
-      if (!bridge.session.timer) return fail("Não há temporizador ativo.");
-      actions.resetTimer();
-      return { success: true, message: "Temporizador zerado." };
+      const requestedId = stringArg(args, "timer_id") ?? bridge.session.activeTimerId;
+      const timer = bridge.session.timers.find((candidate) => candidate.id === requestedId);
+      if (!timer) return fail("Não encontrei esse temporizador para zerar.");
+      actions.resetTimer(timer.id);
+      const timers = bridge.session.timers.filter((item) => item.id !== timer.id);
+      return { success: true, remaining_timers: timers.length, message: "Temporizador removido sem alterar os demais." };
     }
 
     case "stopVoiceGuidance": {
