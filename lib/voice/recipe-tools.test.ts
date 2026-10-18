@@ -284,7 +284,7 @@ describe("executeKitchenTool — temporizador", () => {
     bridge.session.timers = [{ id: "timer-a", stepPosition: 1, durationSeconds: 600, endsAt: null, pausedRemainingSeconds: 120 }];
     bridge.session.activeTimerId = "timer-a";
     const output = run(bridge, "pauseOrResumeTimer") as Record<string, any>;
-    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW);
+    expect(actions.pauseOrResumeTimer).toHaveBeenCalledWith(NOW, "timer-a");
     expect(output.timer.running).toBe(true);
     expect(output.message).toContain("retomado");
   });
