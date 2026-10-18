@@ -569,3 +569,28 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 
 #voice-assistant-slot .voice-microphone-toggle { position: absolute; top: calc(100% + 8px); right: 0; white-space: nowrap; z-index: 45; }
+
+
+/* Ditado de receita: fluxo independente de qualquer importação de vídeo. */
+.voice-recipe-workspace {
+  margin-top: 26px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line, rgba(255,255,255,.14));
+}
+.voice-recipe-workspace h3 {
+  margin: 8px 0;
+  font-size: clamp(20px, 2.4vw, 26px);
+}
+.voice-recipe-workspace > .field-hint { max-width: 680px; }
+.voice-transcript-input { display: grid; gap: 10px; margin: 18px 0 12px; }
+.voice-transcript-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.voice-transcript-controls .field-hint { margin: 0; }
+.voice-transcript-input textarea { width: 100%; resize: vertical; min-height: 150px; }
+.voice-transcript-draft { margin-top: 20px; }
+.voice-recipe-draft { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line, rgba(255,255,255,.14)); }
+.voice-recipe-workspace .transcript-submit { margin-top: 8px; }
+@media (max-width: 600px) {
+  .voice-transcript-controls { align-items: flex-start; }
+  .voice-transcript-controls .field-hint { flex-basis: 100%; }
+  .voice-recipe-workspace { margin-top: 22px; padding-top: 20px; }
+}
