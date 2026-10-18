@@ -7,48 +7,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const VIDEO_URL = "https://v16-sign.tiktokcdn.com/video/play/abc.mp4";
-const COVER_URL = "https://p16-sign.tiktokcdn.com/cover.jpg";
-const SUBTITLE_URL = "https://v16m-webapp.tiktokcdn-us.com/sub/play.vtt";
-
-function rehydrationPage(video: Record<string, unknown>, statusCode = 0): string {
-  const payload = {
-    __DEFAULT_SCOPE__: {
-      "webapp.video-detail": {
-        statusCode,
-        itemInfo: { itemStruct: video },
-      },
-    },
-  };
-
-  return [
-    "<!DOCTYPE html><html><head><title>TikTok</title></head><body>",
-    `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(payload)}</script>`,
-    "</body></html>",
-  ].join("");
-}
-
-function recipeVideo(): Record<string, unknown> {
-  return {
-    id: "7300000000000000000",
-    desc: "Bolo de chocolate em 3 passos",
-    author: { nickname: "Cozinha da Ana", uniqueId: "cozinhadaana" },
-    video: {
-      cover: COVER_URL,
-      playAddr: VIDEO_URL,
-      downloadAddr: "https://v16-webapp-prime.tiktok.com/video/download/watermarked.mp4",
-      width: 720,
-      height: 1280,
-    },
-  };
-}
+const SOURCE_URL = "https://www.tiktok.com/@cozinha/video/123";
+const VIDEO_URL = "https://v16-sign.tiktokcdn.com/video/play/recipe.mp4";
+const THUMBNAIL_URL = "https://p16-sign.tiktokcdn.com/cover.jpg";
 
 function stubFetch(handlers: Array<{ match: string | RegExp; respond: () => Response | Promise<Response> }>) {
   const fetchMock = vi.fn().mockImplementation(async (input: unknown) => {
     const url = String(input);
     for (const handler of handlers) {
-      const matched =
-        typeof handler.match === "string" ? url.includes(handler.match) : handler.match.test(url);
+      const matched = typeof handler.match === "string" ? url.includes(handler.match) : handler.match.test(url);
       if (matched) return handler.respond();
     }
     throw new Error(`UNEXPECTED_REQUEST:${url}`);
@@ -57,193 +24,100 @@ function stubFetch(handlers: Array<{ match: string | RegExp; respond: () => Resp
   return fetchMock;
 }
 
-describe("tiktokConnector", () => {
-  it("extracts the no-watermark playback URL and caption from the rehydration payload", async () => {
+function tikwmResponse(overrides: Record<string, unknown> = {}) {
+  return new Response(JSON.stringify({
+    code: 0,
+    data: {
+      title: "Receita de bolo",
+      author: { nickname: "Cozinha da Ana", unique_id: "cozinhaana" },
+      cover: THUMBNAIL_URL,
+      hdplay: VIDEO_URL,
+      play: "https://v16-sign.tiktokcdn.com/video/play/standard.mp4",
+      ...overrides,
+    },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+function oembedResponse() {
+  return new Response(JSON.stringify({
+    title: "Receita pública",
+    author_name: "Cozinha da Ana",
+    provider_name: "TikTok",
+    thumbnail_url: THUMBNAIL_URL,
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+describe("tiktokConnector (TikWM + official oEmbed)", () => {
+  it("uses TikWM first and returns its validated video URL and metadata", async () => {
     stubFetch([
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(recipeVideo()), { status: 200 }) },
-      { match: "tiktokcdn", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/4194304" } }) },
+      { match: "www.tikwm.com/api/", respond: () => tikwmResponse() },
+      { match: VIDEO_URL, respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/4194304" } }) },
     ]);
 
-    await expect(tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123")).resolves.toEqual({
+    await expect(tiktokConnector.resolve(SOURCE_URL)).resolves.toEqual({
       metadata: {
-        title: "Bolo de chocolate em 3 passos",
+        title: "Receita de bolo",
         author_name: "Cozinha da Ana",
         provider_name: "TikTok",
-        thumbnail_url: COVER_URL,
+        thumbnail_url: THUMBNAIL_URL,
       },
       content: { kind: "external_media", mediaUrl: VIDEO_URL, mimeType: "video/mp4" },
     });
   });
 
-  it("prefers the highest bitrate rendition when playAddr is absent", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>) = {
-      cover: COVER_URL,
-      downloadAddr: "https://v16.tiktok.com/watermarked.mp4",
-      bitrateInfo: [
-        { Bitrate: 400_000, PlayAddr: { UrlList: ["https://v16.tiktok.com/low.mp4"] } },
-        { Bitrate: 1_600_000, PlayAddr: { UrlList: ["https://v16.tiktok.com/high.mp4"] } },
-      ],
-    };
-
+  it("falls back to official oEmbed metadata when TikWM fails, without pretending oEmbed provides video", async () => {
     stubFetch([
-      { match: "high.mp4", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/1000" } }) },
-      { match: "low.mp4", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/1000" } }) },
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
+      { match: "www.tikwm.com/api/", respond: () => new Response(JSON.stringify({ code: 1 }), { status: 200 }) },
+      { match: "www.tiktok.com/oembed", respond: () => oembedResponse() },
     ]);
 
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content).toMatchObject({ kind: "external_media", mediaUrl: "https://v16.tiktok.com/high.mp4" });
+    const resolved = await tiktokConnector.resolve(SOURCE_URL);
+    expect(resolved.metadata).toEqual({
+      title: "Receita pública",
+      author_name: "Cozinha da Ana",
+      provider_name: "TikTok",
+      thumbnail_url: THUMBNAIL_URL,
+    });
+    expect(resolved.content).toMatchObject({
+      kind: "transcript_required",
+      code: "SOURCE_MEDIA_NOT_AVAILABLE",
+    });
   });
 
-  it("falls back to the authorized transcript when the media URL is not an owned CDN host", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>).playAddr = "https://attacker.example/video.mp4";
-
+  it("tries standard playback when HD playback is missing", async () => {
     stubFetch([
-      { match: "tiktok.com", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
+      { match: "www.tikwm.com/api/", respond: () => tikwmResponse({ hdplay: "", play: VIDEO_URL }) },
+      { match: VIDEO_URL, respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/1000" } }) },
     ]);
 
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content.kind).toBe("transcript_required");
-    if (resolved.content.kind === "transcript_required") {
-      expect(resolved.content.code).toBe("SOURCE_MEDIA_URL_INVALID");
-    }
+    const resolved = await tiktokConnector.resolve(SOURCE_URL);
+    expect(resolved.content).toMatchObject({ kind: "external_media", mediaUrl: VIDEO_URL });
   });
 
-  it("falls back to the authorized transcript when the file exceeds the provider limit", async () => {
+  it("rejects a TikWM media URL outside trusted TikTok/TikWM hosts", async () => {
     stubFetch([
-      { match: "tiktok.com", respond: () => new Response(rehydrationPage(recipeVideo()), { status: 200 }) },
-      { match: "tiktokcdn", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/20971520" } }) },
+      { match: "www.tikwm.com/api/", respond: () => tikwmResponse({ hdplay: "https://attacker.example/video.mp4", play: "", wmplay: "" }) },
+      { match: "www.tiktok.com/oembed", respond: () => oembedResponse() },
     ]);
 
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_TOO_LARGE" });
-  });
-
-  it("reports photo posts as requiring a transcript instead of pretending they are videos", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>) = { cover: COVER_URL };
-
-    stubFetch([
-      { match: "tiktok.com", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
-    ]);
-
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/photo/123");
+    const resolved = await tiktokConnector.resolve(SOURCE_URL);
     expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_NOT_AVAILABLE" });
-    expect(resolved.metadata.title).toBe("Bolo de chocolate em 3 passos");
   });
 
-  it("drops thumbnails served from untrusted hosts without failing the import", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>).cover = "https://attacker.example/cover.jpg";
-
-    stubFetch([
-      { match: "tiktok.com", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
-      { match: "tiktokcdn", respond: () => new Response(null, { status: 206, headers: { "Content-Range": "bytes 0-0/1000" } }) },
-    ]);
-
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.metadata.thumbnail_url).toBeNull();
-  });
-
-  it("treats a login wall without rehydration data as unavailable metadata", async () => {
-    stubFetch([
-      {
-        match: "tiktok.com",
-        respond: () => new Response("<!DOCTYPE html><html><body>login</body></html>", { status: 200 }),
-      },
-    ]);
-
-    await expect(tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123"))
-      .rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
-  });
-
-  it("fails when the platform reports a non-zero detail status code", async () => {
-    stubFetch([
-      { match: "tiktok.com", respond: () => new Response(rehydrationPage(recipeVideo(), 10204), { status: 200 }) },
-    ]);
-
-    await expect(tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123"))
-      .rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
-  });
-
-  it("falls back to the public caption track when the CDN rejects the video", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>).subtitleInfos = [
-      { LanguageCodeName: "por-BR", Url: SUBTITLE_URL },
-    ];
-
-    stubFetch([
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
-      { match: "play/abc.mp4", respond: () => new Response("forbidden", { status: 403 }) },
-    ]);
-
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content).toEqual({ kind: "external_subtitles", url: SUBTITLE_URL, mimeType: "text/vtt" });
-  });
-
-  it("uses the caption as public text when there is no video and no subtitle track", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>) = { cover: COVER_URL };
-    video.desc =
-      "Bolo de chocolate: 200g de chocolate meio amargo, 3 ovos, 1 xícara de açúcar, 2 xícaras de farinha. " +
-      "Misture tudo, leve ao forno por 35 minutos e deixe esfriar antes de servir.";
-
-    stubFetch([
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
-    ]);
-
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content).toMatchObject({ kind: "public_text" });
-    if (resolved.content.kind === "public_text") {
-      expect(resolved.content.text).toContain("200g de chocolate");
-    }
-  });
-
-  it("ignores subtitle tracks served from untrusted hosts", async () => {
-    const video = recipeVideo();
-    (video.video as Record<string, unknown>).subtitleInfos = [{ Url: "https://attacker.example/sub.vtt" }];
-
-    stubFetch([
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(rehydrationPage(video), { status: 200 }) },
-      { match: "play/abc.mp4", respond: () => new Response("forbidden", { status: 403 }) },
-    ]);
-
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.content).toMatchObject({ kind: "transcript_required", code: "SOURCE_MEDIA_UNAVAILABLE" });
-  });
-
-  it("rejects hosts outside the TikTok page allowlist without any network access", async () => {
+  it("rejects source URLs outside the TikTok page host allowlist without network access", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-
     await expect(tiktokConnector.resolve("https://tiktok.com.attacker.example/@cook/video/123"))
       .rejects.toThrow("UNSUPPORTED_SOURCE");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("extracts a public video from the legacy SIGI_STATE payload used by upstream scrapers", async () => {
-    const legacyItem = {
-      id: "123",
-      desc: "Receita de panqueca com ovos, leite e farinha. Misture os ingredientes e doure dos dois lados em frigideira quente.",
-      author: { nickname: "Cozinha antiga", uniqueId: "cozinhaantiga" },
-      video: { cover: COVER_URL, playAddr: VIDEO_URL },
-    };
-    const html = `<html><body><script id="SIGI_STATE" type="application/json">${JSON.stringify({
-      ItemModule: { "123": legacyItem },
-    })}</script></body></html>`;
-
+  it("throws metadata unavailable if both TikWM and official oEmbed fail", async () => {
     stubFetch([
-      { match: "https://www.tiktok.com/@cook/video/123", respond: () => new Response(html, { status: 200 }) },
-      { match: "tiktokcdn", respond: () => new Response(null, {
-        status: 206,
-        headers: { "Content-Range": "bytes 0-0/1000" },
-      }) },
+      { match: "www.tikwm.com/api/", respond: () => new Response("unavailable", { status: 503 }) },
+      { match: "www.tiktok.com/oembed", respond: () => new Response("not found", { status: 404 }) },
     ]);
 
-    const resolved = await tiktokConnector.resolve("https://www.tiktok.com/@cook/video/123");
-    expect(resolved.metadata.author_name).toBe("Cozinha antiga");
-    expect(resolved.content).toEqual({ kind: "external_media", mediaUrl: VIDEO_URL, mimeType: "video/mp4" });
+    await expect(tiktokConnector.resolve(SOURCE_URL)).rejects.toThrow("SOURCE_METADATA_UNAVAILABLE");
   });
 });
