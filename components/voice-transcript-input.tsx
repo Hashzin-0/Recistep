@@ -69,7 +69,7 @@ export function VoiceTranscriptInput({
       recognition.onresult = (event) => {
         let finalText = "";
         let interimText = "";
-        for (let index = 0; index < event.results.length; index += 1) {
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
           const phrase = result[0]?.transcript?.trim() ?? "";
           if (!phrase) continue;
