@@ -68,6 +68,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   const voiceApiRef = useRef<VoiceControlApi | null>(null);
   const activeStep = orderedSteps.find((step) => step.position === session.currentStep) ?? orderedSteps[0];
   const activeTimer = session.timers.find((timer) => timer.id === session.activeTimerId) ?? session.timers[0] ?? null;
+  const activeTimerStep = activeTimer ? orderedSteps.find((step) => step.position === activeTimer.stepPosition) : null;
   const timerRemaining = activeTimer ? remainingTimerSeconds(activeTimer, now) : null;
 
   useEffect(() => {
@@ -280,7 +281,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
               </div>;
             })}
           </div>}
-          <p className="kitchen-timer-instruction">{activeStep?.instruction ?? "Selecione uma etapa para começar."}</p>
+          <p className="kitchen-timer-instruction">{activeTimerStep?.instruction ?? activeStep?.instruction ?? "Selecione uma etapa para começar."}</p>
           <div className={"kitchen-clock" + (activeTimer && remainingTimerSeconds(activeTimer, now) === 0 ? " expired" : "")} role="timer" aria-live={activeTimer && remainingTimerSeconds(activeTimer, now) === 0 ? "assertive" : "off"}>{activeTimer ? formatDuration(timerRemaining ?? 0) : activeStep?.duration_seconds !== null && activeStep?.duration_seconds !== undefined ? formatDuration(activeStep.duration_seconds) : "—:—"}</div>
           {activeTimer && timerRemaining === 0 && <p className="kitchen-notice" role="alert">Tempo encerrado neste temporizador. Confira o preparo antes de avançar.</p>}
           <label className="kitchen-custom-time">Minutos personalizados (quando necessário)<input type="number" min="0.0167" max="10080" step="any" value={customMinutes} onChange={(event) => setCustomMinutes(event.target.value)} /></label>
