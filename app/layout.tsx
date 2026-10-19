@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AppHeader } from "@/components/app-header";
+import { Motion } from "@/components/motion";
 
 export const metadata: Metadata = {
   title: "Recistep — cozinhe no seu ritmo",
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0e0b",
+  themeColor: "#14120f",
   width: "device-width",
   initialScale: 1,
 };
@@ -23,7 +24,13 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "document.documentElement.classList.add('js');",
+          }}
+        />
         <AuthProvider>
+          <Motion />
           <AppHeader />
           {children}
         </AuthProvider>

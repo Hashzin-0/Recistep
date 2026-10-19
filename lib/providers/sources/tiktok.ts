@@ -1,5 +1,6 @@
 import "server-only";
 import type { ResolvedSource, SourceConnector } from "@/lib/providers/sources/source-connector";
+import { MIN_PUBLIC_TEXT_LENGTH } from "@/lib/providers/sources/source-connector";
 import { fetchAllowlistedDocument, hostMatchesSuffix, parseAllowedHttpsUrl } from "@/lib/providers/sources/safe-fetch";
 import { isPlatformMediaHost, isPlatformPageHost } from "@/lib/providers/sources/platform-hosts";
 import { probeExternalMedia } from "@/lib/providers/media/remote-video";
@@ -42,7 +43,7 @@ function safeThumbnailUrl(value: unknown): string | null {
   return parseAllowedHttpsUrl(raw, MEDIA_HOST)?.toString() ?? null;
 }
 
-async function fetchTikwm(sourceUrl: string): Promise<{ metadata: ResolvedSource["metadata"]; mediaUrl: string } | null> {
+async function fetchTikwm(sourceUrl: string): Promise<{ metadata: ResolvedSource["metadata"]; mediaUrl: string; fallbackText?: string } | null> {
   const endpoint = new URL("https://www.tikwm.com/api/");
   endpoint.searchParams.set("url", sourceUrl);
   endpoint.searchParams.set("hd", "1");
@@ -69,6 +70,11 @@ async function fetchTikwm(sourceUrl: string): Promise<{ metadata: ResolvedSource
     const title = nonEmptyString(data.title);
     const thumbnailUrl = safeThumbnailUrl(data.cover) ?? safeThumbnailUrl(data.origin_cover);
 
+    // The caption is public platform text. It is only offered as a fallback
+    // when it is long enough to sustain an extraction, never as a substitute
+    // for the video's own evidence.
+    const fallbackText = title && title.length >= MIN_PUBLIC_TEXT_LENGTH ? title.slice(0, 80_000) : undefined;
+
     return {
       metadata: {
         title: (title ?? (author ? `TikTok de ${author}` : "Post do TikTok")).slice(0, 200),
@@ -77,6 +83,7 @@ async function fetchTikwm(sourceUrl: string): Promise<{ metadata: ResolvedSource
         thumbnail_url: thumbnailUrl,
       },
       mediaUrl,
+      fallbackText,
     };
   } catch {
     // TikWM is an external free service; a failure proceeds to official oEmbed.
@@ -131,7 +138,12 @@ export const tiktokConnector: SourceConnector = {
         });
         return {
           metadata: extracted.metadata,
-          content: { kind: "external_media", mediaUrl: extracted.mediaUrl, mimeType: "video/mp4" },
+          content: {
+            kind: "external_media",
+            mediaUrl: extracted.mediaUrl,
+            mimeType: "video/mp4",
+            ...(extracted.fallbackText ? { fallbackText: extracted.fallbackText } : {}),
+          },
         };
       } catch {
         // Do not return an unverified video URL; try official public metadata.

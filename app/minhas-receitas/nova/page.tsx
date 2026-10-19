@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { PageTransition } from "@/components/view-transition";
 import { RecipeEditor } from "@/components/recipe-editor";
 import { apiFetch } from "@/lib/client/api";
 import { createEmptyRecipe, type RecipeApiData } from "@/lib/recipe/recipe-draft";
@@ -38,10 +39,11 @@ export default function NovaReceitaPage() {
   }
 
   return (
+    <PageTransition>
     <main className="site-shell page-main">
       <section className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> NOVA RECEITA</div>
+          <p className="page-kicker">Nova receita</p>
           <h1>Criar receita</h1>
           <p>Descreva a receita do seu jeito. Quantidades e tempos desconhecidos ficam em branco.</p>
         </div>
@@ -60,5 +62,6 @@ export default function NovaReceitaPage() {
         </form>
       )}
     </main>
+    </PageTransition>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { PageTransition } from "@/components/view-transition";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeSummary } from "@/lib/recipe/recipe-draft";
 
@@ -90,10 +91,11 @@ export default function ListaDeComprasPage() {
   }
 
   return (
+    <PageTransition>
     <main className="site-shell page-main">
       <section className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> COMPRAS</div>
+          <p className="page-kicker">Compras</p>
           <h1>Lista de compras</h1>
           <p>Reúna os ingredientes das suas receitas e marque o que já comprou.</p>
         </div>
@@ -154,5 +156,6 @@ export default function ListaDeComprasPage() {
         </>
       )}
     </main>
+    </PageTransition>
   );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { ViewTransition } from "@/components/view-transition";
 
 const TABS = [
   { href: "/", label: "Receitas" },
@@ -18,6 +19,7 @@ function isActive(pathname: string, href: string): boolean {
 export function AppHeader() {
   const pathname = usePathname();
   const { signedInEmail, isAuthBusy, signIn, signOut } = useAuth();
+  const currentIndex = TABS.findIndex((tab) => isActive(pathname, tab.href));
 
   return (
     <div className="site-shell app-header">
@@ -49,18 +51,30 @@ export function AppHeader() {
           )}
         </div>
       </div>
-      <nav className="app-tabs" aria-label="Navegação principal">
-        {TABS.map((tab) => (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={"app-tab" + (isActive(pathname, tab.href) ? " is-active" : "")}
-            aria-current={isActive(pathname, tab.href) ? "page" : undefined}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
+      {signedInEmail && (
+        <nav className="app-tabs" aria-label="Navegação principal">
+          {TABS.map((tab, index) => {
+            const active = isActive(pathname, tab.href);
+            const direction = currentIndex >= 0 && index < currentIndex ? "nav-back" : "nav-forward";
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                className={"app-tab" + (active ? " is-active" : "")}
+                aria-current={active ? "page" : undefined}
+                transitionTypes={[direction]}
+              >
+                {active && (
+                  <ViewTransition name="tab-pill" share="auto" default="none">
+                    <span className="app-tab-pill" aria-hidden="true" />
+                  </ViewTransition>
+                )}
+                <span className="app-tab-label">{tab.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

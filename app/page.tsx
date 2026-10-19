@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
 import { ShoppingListPanel } from "@/components/recipe-planner";
@@ -9,6 +9,7 @@ import { RecipeEditor } from "@/components/recipe-editor";
 import { KitchenMode } from "@/components/kitchen-mode";
 import { VoiceAssistantHud, type VoiceControlApi } from "@/components/voice-assistant-hud";
 import { VoiceTranscriptInput } from "@/components/voice-transcript-input";
+import { PageTransition } from "@/components/view-transition";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildReviewSystemInstruction } from "@/lib/voice/prompts";
 import { RECIPE_EDIT_TOOLS, executeRecipeEditTool } from "@/lib/voice/recipe-tools";
@@ -516,16 +517,19 @@ export default function HomePage() {
   }
 
   return (
+    <PageTransition>
     <main className={"site-shell page-main" + (signedInEmail ? " is-authenticated-workspace" : "")}>
       <section className="hero">
         <div className="hero-copy">
-          <div className="eyebrow"><span className="eyebrow-line" /> SUA COZINHA, MAIS ORGANIZADA</div>
-          <h1>Do vídeo à mesa.<br /><em>Sem perder</em> nenhum passo.</h1>
-          <p className="hero-description">
+          <h1 className="hero-title" data-lines>
+            <span className="line"><span style={{ "--i": 0 } as CSSProperties}>Do vídeo à mesa.</span></span>
+            <span className="line"><span style={{ "--i": 1 } as CSSProperties}><em>Sem perder</em> nenhum passo.</span></span>
+          </h1>
+          <p className="hero-description" data-reveal style={{ "--reveal-delay": "260ms" } as CSSProperties}>
             Transforme receitas que você encontra por aí em ingredientes organizados,
             etapas claras e um preparo que cabe na sua rotina.
           </p>
-          <div className="hero-points">
+          <div className="hero-points" data-reveal style={{ "--reveal-delay": "360ms" } as CSSProperties}>
             <span><span className="check">✓</span> Ingredientes reunidos</span>
             <span><span className="check">✓</span> Tempos por etapa</span>
             <span><span className="check">✓</span> Lista de compras</span>
@@ -533,122 +537,129 @@ export default function HomePage() {
         </div>
 
         <div className="import-card">
-          <div className="card-kicker">IMPORTAR RECEITA</div>
+          <div className="card-kicker">Importar receita</div>
           <h2>Encontrou algo gostoso?</h2>
-          <p className="card-description">Cole o link do vídeo para começar a organizar a receita.</p>
+          <p className="card-description">
+            {signedInEmail
+              ? "Cole o link do vídeo para começar a organizar a receita."
+              : "Entre com o Google para importar, organizar e salvar suas receitas."}
+          </p>
           <SignInPrompt message="Entre para importar e salvar suas receitas." />
-          <form onSubmit={handleImport}>
-            <label htmlFor="source-url">Link do vídeo</label>
-            <div className="url-field">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-                <path d="M10 13.5a4 4 0 0 0 5.66 0l3-3A4 4 0 0 0 13 4.84l-1.72 1.72" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
-                <path d="M14 10.5a4 4 0 0 0-5.66 0l-3 3A4 4 0 0 0 11 19.16l1.72-1.72" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
-              </svg>
-              <input
-                id="source-url"
-                type="url"
-                inputMode="url"
-                autoComplete="url"
-                placeholder="https://..."
-                value={sourceUrl}
-                onChange={(event) => setSourceUrl(event.target.value)}
-                maxLength={2048}
-                required
-                aria-describedby="supported-sources"
-              />
-              <button className="import-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Verificando…" : "Analisar link"}
-                {!isSubmitting && <span aria-hidden="true">↗</span>}
-              </button>
-            </div>
-            <p className="field-hint" id="supported-sources">
-              YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
-            </p>
-          </form>
-
-          <form className="file-recipe-import" onSubmit={handleFileRecipeSubmit}>
-            <label htmlFor="recipe-file">Ou importe um arquivo</label>
-            <p className="field-hint">PDF, imagem (JPG, PNG, WebP) ou vídeo (MP4, WebM, MOV), até 4 MB.</p>
-            <div className="file-recipe-controls">
-              <input
-                id="recipe-file"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  setSelectedRecipeFile(file);
-                  if (file && file.size > 4 * 1024 * 1024) {
-                    setFeedback({ kind: "error", message: "O arquivo deve ter no máximo 4 MB." });
-                  } else if (file) {
-                    setFeedback(null);
-                  }
-                }}
-                disabled={isExtractingFile}
-                aria-describedby="recipe-file-help"
-              />
-              <button className="import-button" type="submit" disabled={!selectedRecipeFile || isExtractingFile}>
-                {isExtractingFile ? "Analisando arquivo…" : "Extrair receita"}
-              </button>
-            </div>
-            <span className="field-hint" id="recipe-file-help">
-              {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
-            </span>
-          </form>
-
-          <Link className="manual-create-link" href="/minhas-receitas/nova">
-            Ou crie uma receita manualmente →
-          </Link>
 
           {signedInEmail && (
-            <section className="voice-recipe-workspace" aria-labelledby="voice-recipe-heading">
-              <span className="auth-label">SEM PRECISAR DE UM LINK</span>
-              <h3 id="voice-recipe-heading">Dite uma receita</h3>
-              <p className="field-hint">Conte os ingredientes, as quantidades e o preparo. O Recistep monta um rascunho para você revisar; informações que não forem ditas permanecem em aberto.</p>
-              <form onSubmit={extractVoiceRecipe}>
-                <VoiceTranscriptInput
-                  value={voiceRecipeTranscript}
-                  onChange={setVoiceRecipeTranscript}
-                  disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe}
-                />
-                <button className="import-button transcript-submit" type="submit" disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe || voiceRecipeTranscript.trim().length < 80}>
-                  {isExtractingVoiceRecipe ? "Montando rascunho…" : "Gerar rascunho da receita"}
-                </button>
+            <>
+              <form onSubmit={handleImport}>
+                <label htmlFor="source-url">Link do vídeo</label>
+                <div className="url-field">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                    <path d="M10 13.5a4 4 0 0 0 5.66 0l3-3A4 4 0 0 0 13 4.84l-1.72 1.72" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+                    <path d="M14 10.5a4 4 0 0 0-5.66 0l-3 3A4 4 0 0 0 11 19.16l1.72-1.72" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+                  </svg>
+                  <input
+                    id="source-url"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="url"
+                    placeholder="https://..."
+                    value={sourceUrl}
+                    onChange={(event) => setSourceUrl(event.target.value)}
+                    maxLength={2048}
+                    required
+                    aria-describedby="supported-sources"
+                  />
+                  <button className="import-button" type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Verificando…" : "Analisar link"}
+                    {!isSubmitting && <span aria-hidden="true">↗</span>}
+                  </button>
+                </div>
+                <p className="field-hint" id="supported-sources">
+                  YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
+                </p>
               </form>
-              {voiceRecipeMessage && (
-                <p className="field-hint" role="status" aria-live="polite">{voiceRecipeMessage}</p>
-              )}
-              {voiceSavedRecipeId && (
-                <p className="field-hint"><Link href={"/minhas-receitas/" + voiceSavedRecipeId}>Abrir receita salva →</Link></p>
-              )}
-              {voiceRecipeDraft && (
-                <div className="recipe-draft voice-recipe-draft">
-                  <h4>Revise antes de salvar</h4>
-                  <p className="field-hint">Confira o que foi reconhecido. Quantidades e tempos não informados não são inventados.</p>
-                  <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
-                  {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
-                  {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
-                  <div className="review-actions">
-                    <button className="import-button" type="button" onClick={saveVoiceRecipe} disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}>
-                      {isSavingVoiceRecipe ? "Salvando…" : "Salvar receita"}
-                    </button>
+
+              <form className="file-recipe-import" onSubmit={handleFileRecipeSubmit}>
+                <label htmlFor="recipe-file">Ou importe um arquivo</label>
+                <p className="field-hint">PDF, imagem (JPG, PNG, WebP) ou vídeo (MP4, WebM, MOV), até 4 MB.</p>
+                <div className="file-recipe-controls">
+                  <input
+                    id="recipe-file"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setSelectedRecipeFile(file);
+                      if (file && file.size > 4 * 1024 * 1024) {
+                        setFeedback({ kind: "error", message: "O arquivo deve ter no máximo 4 MB." });
+                      } else if (file) {
+                        setFeedback(null);
+                      }
+                    }}
+                    disabled={isExtractingFile}
+                    aria-describedby="recipe-file-help"
+                  />
+                  <button className="import-button" type="submit" disabled={!selectedRecipeFile || isExtractingFile}>
+                    {isExtractingFile ? "Analisando arquivo…" : "Extrair receita"}
+                  </button>
+                </div>
+                <span className="field-hint" id="recipe-file-help">
+                  {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
+                </span>
+              </form>
+
+              <Link className="manual-create-link" href="/minhas-receitas/nova">
+                Ou crie uma receita manualmente →
+              </Link>
+
+              <section className="voice-recipe-workspace" aria-labelledby="voice-recipe-heading">
+                <span className="auth-label">Sem precisar de um link</span>
+                <h3 id="voice-recipe-heading">Dite uma receita</h3>
+                <p className="field-hint">Conte os ingredientes, as quantidades e o preparo. O Recistep monta um rascunho para você revisar; informações que não forem ditas permanecem em aberto.</p>
+                <form onSubmit={extractVoiceRecipe}>
+                  <VoiceTranscriptInput
+                    value={voiceRecipeTranscript}
+                    onChange={setVoiceRecipeTranscript}
+                    disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe}
+                  />
+                  <button className="import-button transcript-submit" type="submit" disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe || voiceRecipeTranscript.trim().length < 80}>
+                    {isExtractingVoiceRecipe ? "Montando rascunho…" : "Gerar rascunho da receita"}
+                  </button>
+                </form>
+                {voiceRecipeMessage && (
+                  <p className="field-hint" role="status" aria-live="polite">{voiceRecipeMessage}</p>
+                )}
+                {voiceSavedRecipeId && (
+                  <p className="field-hint"><Link href={"/minhas-receitas/" + voiceSavedRecipeId}>Abrir receita salva →</Link></p>
+                )}
+                {voiceRecipeDraft && (
+                  <div className="recipe-draft voice-recipe-draft">
+                    <h4>Revise antes de salvar</h4>
+                    <p className="field-hint">Confira o que foi reconhecido. Quantidades e tempos não informados não são inventados.</p>
+                    <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
+                    {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
+                    {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
+                    <div className="review-actions">
+                      <button className="import-button" type="button" onClick={saveVoiceRecipe} disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}>
+                        {isSavingVoiceRecipe ? "Salvando…" : "Salvar receita"}
+                      </button>
+                    </div>
                   </div>
+                )}
+              </section>
+
+              {feedback && (
+                <div className={`feedback feedback-${feedback.kind}`} role="status" aria-live="polite">
+                  <span aria-hidden="true">{feedback.kind === "error" ? "!" : "i"}</span>
+                  {feedback.message}
                 </div>
               )}
-            </section>
+            </>
           )}
 
-          {feedback && (
-            <div className={`feedback feedback-${feedback.kind}`} role="status" aria-live="polite">
-              <span aria-hidden="true">{feedback.kind === "error" ? "!" : "i"}</span>
-              {feedback.message}
-            </div>
-          )}
-
-          {activeImportId && importRecord && (
+          {signedInEmail && activeImportId && importRecord && (
             <section className="import-status" aria-labelledby="import-status-heading">
               <div className="import-status-heading">
                 <div>
-                  <span className="auth-label">IMPORTAÇÃO</span>
+                  <span className="auth-label">Importação</span>
                   <h3 id="import-status-heading">{statusLabel(importRecord.status)}</h3>
                 </div>
                 <button className="auth-secondary-button" type="button" onClick={refreshImportStatus}>
@@ -666,7 +677,7 @@ export default function HomePage() {
                   <h4>{streamDraft.title || "Decifrando receita…"}</h4>
                   {streamDraft.ingredients.length > 0 && (
                     <>
-                      <span className="auth-label">INGREDIENTES ({streamDraft.ingredients.length})</span>
+                      <span className="auth-label">Ingredientes ({streamDraft.ingredients.length})</span>
                       <ul>
                         {streamDraft.ingredients.map((ingredient, index) => (
                           <li key={index}>
@@ -680,7 +691,7 @@ export default function HomePage() {
                   )}
                   {streamDraft.steps.length > 0 && (
                     <>
-                      <span className="auth-label">MODO DE PREPARO ({streamDraft.steps.length})</span>
+                      <span className="auth-label">Modo de preparo ({streamDraft.steps.length})</span>
                       <ol>
                         {streamDraft.steps.map((step) => (
                           <li key={step.position}>
@@ -743,13 +754,17 @@ export default function HomePage() {
             </section>
           )}
 
-          <div className="supported-divider"><span /> FEITO PARA RECEITAS REAIS <span /></div>
-          <div className="source-list" aria-label="Plataformas reconhecidas">
-            <span className="source-chip"><span className="source-icon youtube">▶</span> YouTube</span>
-            <span className="source-chip"><span className="source-icon tiktok">♪</span> TikTok</span>
-            <span className="source-chip"><span className="source-icon instagram">◎</span> Instagram</span>
-          </div>
-          <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
+          {signedInEmail && (
+            <>
+              <div className="supported-divider"><span /> Feito para receitas reais <span /></div>
+              <div className="source-list" aria-label="Plataformas reconhecidas">
+                <span className="source-chip"><span className="source-icon youtube">▶</span> YouTube</span>
+                <span className="source-chip"><span className="source-icon tiktok">♪</span> TikTok</span>
+                <span className="source-chip"><span className="source-icon instagram">◎</span> Instagram</span>
+              </div>
+              <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
+            </>
+          )}
         </div>
         {signedInEmail && <VoiceAssistantHud
           contextLabel={reviewDraft ? "Edição da receita" : "Assistente de cozinha"}
@@ -763,39 +778,27 @@ export default function HomePage() {
       </section>
 
       <section className="workflow" aria-labelledby="workflow-heading">
-        <div className="section-heading">
-          <div>
-            <div className="eyebrow"><span className="eyebrow-line" /> DO LINK AO PREPARO</div>
-            <h2 id="workflow-heading">Tudo no seu tempo.</h2>
-          </div>
+        <div className="section-heading" data-reveal>
+          <h2 id="workflow-heading">Do link ao preparo, no seu tempo.</h2>
           <p>Uma receita bem organizada deixa espaço para aproveitar o que importa: cozinhar.</p>
         </div>
-        <div className="workflow-grid">
-          <article className="workflow-card">
-            <div className="step-number">01 <span>·</span> ORGANIZE</div>
-            <div className="workflow-icon icon-ingredients" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none"><path d="M8 17h32l-3 23H11L8 17Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="M13 17c1-6 5-9 11-9s10 3 11 9" stroke="currentColor" strokeWidth="1.8"/><path d="M17 25v8m7-8v8m7-8v8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-            </div>
+        <ol className="workflow-list" data-reveal>
+          <li>
+            <span className="workflow-marker" aria-hidden="true">1</span>
             <h3>Ingredientes sem surpresa</h3>
             <p>Veja quantidades, unidades e o que falta comprar antes de começar.</p>
-          </article>
-          <article className="workflow-card">
-            <div className="step-number">02 <span>·</span> PLANEJE</div>
-            <div className="workflow-icon icon-time" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="26" r="15" stroke="currentColor" strokeWidth="1.8"/><path d="M24 17v10l7 4M18 5h12M24 5v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </div>
+          </li>
+          <li>
+            <span className="workflow-marker" aria-hidden="true">2</span>
             <h3>Tempo para cada etapa</h3>
             <p>Separe preparo, descanso e forno para saber o que vem a seguir.</p>
-          </article>
-          <article className="workflow-card">
-            <div className="step-number">03 <span>·</span> COZINHE</div>
-            <div className="workflow-icon icon-cook" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none"><path d="M10 21h28l-3 20H13l-3-20Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="M15 21v-4a9 9 0 0 1 18 0v4M19 9l-2-4m12 4 2-4M18 29h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-            </div>
+          </li>
+          <li>
+            <span className="workflow-marker" aria-hidden="true">3</span>
             <h3>Um passo de cada vez</h3>
             <p>Acompanhe o preparo sem precisar voltar ao vídeo a cada minuto.</p>
-          </article>
-        </div>
+          </li>
+        </ol>
       </section>
 
       <footer className="footer">
@@ -807,5 +810,6 @@ export default function HomePage() {
         <span className="footer-version">RECISTEP · MVP</span>
       </footer>
     </main>
+    </PageTransition>
   );
 }

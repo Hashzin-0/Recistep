@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { PageTransition } from "@/components/view-transition";
 import { RecipeEditor } from "@/components/recipe-editor";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
@@ -76,10 +77,11 @@ export default function EditarReceitaPage() {
   }
 
   return (
+    <PageTransition>
     <main className="site-shell page-main">
       <section className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> EDITAR RECEITA</div>
+          <p className="page-kicker">Editar receita</p>
           <h1>Editar receita</h1>
           <p>As alterações substituem ingredientes e etapas salvos anteriormente.</p>
         </div>
@@ -115,5 +117,6 @@ export default function EditarReceitaPage() {
         </>
       )}
     </main>
+    </PageTransition>
   );
 }

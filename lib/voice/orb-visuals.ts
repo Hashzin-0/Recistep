@@ -31,19 +31,19 @@ export interface ProjectedPoint {
 }
 
 const PALETTES: Record<LiveStatus, OrbPalette> = {
-  idle: { core: "#5a5a40", glow: "#c5a880", ring: "#c5a880", particle: "#ffffff" },
-  connecting: { core: "#4a5540", glow: "#a8d477", ring: "#a8d477", particle: "#e8f2d8" },
-  listening: { core: "#c5832b", glow: "#f6e05e", ring: "#f6e05e", particle: "#fff3c4" },
-  thinking: { core: "#319795", glow: "#81e6d9", ring: "#81e6d9", particle: "#d6fffa" },
-  speaking: { core: "#2e6f40", glow: "#68d391", ring: "#68d391", particle: "#dcffe8" },
-  error: { core: "#e53e3e", glow: "#feb2b2", ring: "#feb2b2", particle: "#ffe1e1" },
+  idle: { core: "#4a4535", glow: "#8b8272", ring: "#8b8272", particle: "#f4efe4" },
+  connecting: { core: "#46603a", glow: "#b8d762", ring: "#b8d762", particle: "#e9f6c8" },
+  listening: { core: "#8fae3e", glow: "#cbe86c", ring: "#cbe86c", particle: "#f3ffcf" },
+  thinking: { core: "#3f6b62", glow: "#83c8bb", ring: "#83c8bb", particle: "#d9f5ee" },
+  speaking: { core: "#46603a", glow: "#9fd07a", ring: "#9fd07a", particle: "#e6f7d3" },
+  error: { core: "#c4533c", glow: "#ff9d87", ring: "#ff9d87", particle: "#ffe1d8" },
 };
 
 const MUTED_PALETTE: OrbPalette = {
-  core: "#4a4d46",
-  glow: "#8d9188",
-  ring: "#8d9188",
-  particle: "#c9ccc4",
+  core: "#3d3a34",
+  glow: "#6f6a60",
+  ring: "#6f6a60",
+  particle: "#a8a297",
 };
 
 const AUDIO_PULSE_MAX = 1.6;

@@ -16,8 +16,11 @@ import {
 import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
 import {
   streamRecipeFromTranscript,
-  streamRecipeFromMediaUrl,
+  streamRecipeFromPreparedMedia,
+  prepareMediaForGemini,
+  deletePreparedMedia,
   GeminiExtractionError,
+  type PreparedMedia,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { streamExtractToImport } from "@/lib/providers/ai/stream-extractor";
 
@@ -130,29 +133,57 @@ export const processImportRequested = inngest.createFunction(
       return { id, status: "source_content_required", contentUnavailable: true };
     }
 
+    const media = extraction.kind === "media" ? extraction.content : null;
+    const fallbackTranscript = media?.kind === "external_media" ? media.fallbackText : undefined;
+
     try {
       const titleCache = await step.run("lookup-recipe-by-normalized-title", async () => {
         try { return await findCachedRecipeByTitle(metadata.title); }
         catch { return null; }
       });
+
+      // Downloading and uploading the video runs in its own durable step so the
+      // bytes never enter step history and the extraction step stays short.
+      let preparedMedia: PreparedMedia | null = null;
+      if (!titleCache?.recipe_draft && media) {
+        const mediaToPrepare = media;
+        preparedMedia = await step.run("prepare-public-media", async () =>
+          prepareMediaForGemini({
+            mediaUrl: mediaToPrepare.mediaUrl,
+            platform: record.platform,
+            mimeType: mediaToPrepare.kind === "external_media" ? mediaToPrepare.mimeType : undefined,
+          }),
+        );
+      }
+
+      const runExtraction = () => {
+        if (!media) {
+          return streamRecipeFromTranscript({
+            transcript: extraction.kind === "text" ? extraction.transcript : "",
+            locale: record.locale,
+            sourceTitle: metadata.title,
+          });
+        }
+        if (!preparedMedia) throw new Error("MISSING_PREPARED_MEDIA");
+        const prepared = preparedMedia;
+        return streamRecipeFromPreparedMedia({
+          media: prepared,
+          platform: record.platform,
+          locale: record.locale,
+          sourceTitle: metadata.title,
+          fallbackTranscript,
+        });
+      };
+
       const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-source", async () =>
-        streamExtractToImport({
-          importId: id,
-          stream: extraction.kind === "media"
-            ? streamRecipeFromMediaUrl({
-              mediaUrl: extraction.content.mediaUrl,
-              platform: record.platform,
-              mimeType: extraction.content.kind === "external_media" ? extraction.content.mimeType : undefined,
-              locale: record.locale,
-              sourceTitle: metadata.title,
-            })
-            : streamRecipeFromTranscript({
-              transcript: extraction.transcript,
-              locale: record.locale,
-              sourceTitle: metadata.title,
-            }),
-        }),
+        streamExtractToImport({ importId: id, stream: runExtraction() }),
       );
+
+      if (preparedMedia) {
+        const toDelete = preparedMedia;
+        await step.run("cleanup-public-media", async () => deletePreparedMedia(toDelete));
+      }
+
       await step.run("persist-recipe-draft-for-review", async () => updateSourceImport(id, {
         status: "review_required",
         recipe_draft: draft,
@@ -170,7 +201,7 @@ export const processImportRequested = inngest.createFunction(
       const code = error instanceof Error ? error.message : "GEMINI_EXTRACTION_FAILURE";
       if (error instanceof GeminiExtractionError && error.retryable) throw error;
 
-      if (["GEMINI_VIDEO_UNAVAILABLE", "UNSUPPORTED_SOURCE"].includes(code)) {
+      if (["GEMINI_VIDEO_UNAVAILABLE", "GEMINI_FILE_PROCESSING_FAILED", "UNSUPPORTED_SOURCE"].includes(code)) {
         await step.run("request-transcript-fallback", async () => updateSourceImport(id, {
           status: "source_content_required",
           error_code: code,

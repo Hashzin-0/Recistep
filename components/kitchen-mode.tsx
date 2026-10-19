@@ -224,7 +224,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
 
   return <section className="kitchen-mode" aria-labelledby="kitchen-mode-title">
     <div className="kitchen-heading">
-      <div><span className="kitchen-eyebrow">MODO COZINHA</span><h3 id="kitchen-mode-title">{title}</h3><p>Progresso salvo somente neste dispositivo. Mantenha a tela visível durante o preparo.</p></div>
+      <div><span className="kitchen-eyebrow">Modo cozinha</span><h3 id="kitchen-mode-title">{title}</h3><p>Progresso salvo somente neste dispositivo. Mantenha a tela visível durante o preparo.</p></div>
       <div className={"connection-state" + (online ? "" : " offline")} role="status"><span />{online ? "Conectado" : "Sem conexão"}</div>
     </div>
     {!online && <p className="kitchen-notice" role="status">O modo cozinha já carregado pode continuar, mas o banco e a importação precisam de conexão.</p>}

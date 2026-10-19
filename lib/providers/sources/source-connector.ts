@@ -7,7 +7,7 @@ export const MIN_PUBLIC_TEXT_LENGTH = 80;
 
 export type ResolvedContent =
   | { kind: "youtube_url"; mediaUrl: string }
-  | { kind: "external_media"; mediaUrl: string; mimeType: "video/mp4" }
+  | { kind: "external_media"; mediaUrl: string; mimeType: "video/mp4"; fallbackText?: string }
   | { kind: "external_subtitles"; url: string; mimeType: "text/vtt" }
   | { kind: "public_text"; text: string }
   | { kind: "unsupported_content"; code: string; reason: string }

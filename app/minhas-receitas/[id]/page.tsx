@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { PageTransition } from "@/components/view-transition";
 import { KitchenMode } from "@/components/kitchen-mode";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { apiFetch } from "@/lib/client/api";
@@ -106,10 +107,11 @@ export default function ReceitaDetalhePage() {
   }
 
   return (
+    <PageTransition>
     <main className="site-shell page-main">
       <section className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> RECEITA SALVA</div>
+          <p className="page-kicker">Receita salva</p>
           <h1>{data?.recipe.title ?? "Receita"}</h1>
           {data?.recipe.description && <p>{data.recipe.description}</p>}
         </div>
@@ -213,5 +215,6 @@ export default function ReceitaDetalhePage() {
         </>
       )}
     </main>
+    </PageTransition>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { PageTransition } from "@/components/view-transition";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeSummary } from "@/lib/recipe/recipe-draft";
 
@@ -51,10 +52,11 @@ export default function MinhasReceitasPage() {
   }
 
   return (
+    <PageTransition>
     <main className="site-shell page-main">
       <section className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> SUA COLEÇÃO</div>
+          <p className="page-kicker">Sua coleção</p>
           <h1>Minhas receitas</h1>
           <p>Somente você tem acesso às receitas salvas aqui. Abra, inicie o preparo, edite ou exclua.</p>
         </div>
@@ -102,5 +104,6 @@ export default function MinhasReceitasPage() {
         </section>
       )}
     </main>
+    </PageTransition>
   );
 }
