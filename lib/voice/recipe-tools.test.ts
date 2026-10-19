@@ -363,6 +363,8 @@ function makeDraft(): RecipeExtraction {
     description: "Receita da vovó",
     source_language: "pt",
     servings: 4,
+    cover_image_url: null,
+    utensils: [],
     timings: { prep_seconds: null, cook_seconds: null, total_seconds: null },
     ingredients: [
       { name: "Fubá", quantity: 200, unit: "g", notes: null, source_evidence: null, confidence: 1 },
