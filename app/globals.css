@@ -1138,6 +1138,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .kitchen-ingredient-list strong { font-size: 13.5px; }
 .kitchen-ingredient-list small { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
 .kitchen-ingredient-list label.checked strong { text-decoration: line-through; opacity: 0.6; }
+.kitchen-utensil-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.kitchen-utensil-list li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.kitchen-utensil-list li:last-child { border-bottom: 0; }
+.kitchen-utensil-list strong { font-size: 13.5px; }
+.kitchen-utensil-list small { color: var(--muted); font-size: 12.5px; }
+.kitchen-utensil-list p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .kitchen-notice { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--info-bg); color: var(--info-ink); font-size: 13px; line-height: 1.55; }
 
 /* ------------------------------------------------------------------ *

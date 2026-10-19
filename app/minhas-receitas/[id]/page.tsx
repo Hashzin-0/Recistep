@@ -264,7 +264,7 @@ export default function ReceitaDetalhePage() {
 
           {data && (
             <section className="recipe-detail">
-              {data.cover_image_url && <img className="recipe-cover-image" src={data.cover_image_url} alt={"Capa da receita " + data.recipe.title} />}
+              {data.cover_image_url && !started && <img className="recipe-cover-image" src={data.cover_image_url} alt={"Capa da receita " + data.recipe.title} />}
               <div className="recipe-detail-actions">
                 <button className="import-button" type="button" onClick={() => setStarted((value) => !value)}>
                   {started ? "Encerrar preparo" : "Iniciar preparo"}
@@ -282,68 +282,72 @@ export default function ReceitaDetalhePage() {
                 {exportMessage && <p className="field-hint" role="status">{exportMessage}</p>}
               </div>
 
-              {data.video_display && <VideoDisplay display={data.video_display} title={data.recipe.title} />}
+              {!started && (
+                <>
+                  {data.video_display && <VideoDisplay display={data.video_display} title={data.recipe.title} />}
 
-              <div className="recipe-media-tools">
-                <label className="auth-secondary-button recipe-upload-label">
-                  {mediaBusy ? "Processando…" : "Adicionar foto/capa"}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={mediaBusy} onChange={(event) => { void uploadCover(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-                </label>
-                <button className="auth-secondary-button" type="button" disabled={mediaBusy} onClick={() => void generateFlowchart()}>Gerar fluxograma do preparo</button>
-                {mediaMessage && <p className="field-hint" role="status">{mediaMessage}</p>}
-              </div>
-              <section className="recipe-rating" aria-label="Avaliação da receita">
-                <strong>Avalie esta receita</strong>
-                <div className="recipe-rating-stars">
-                  {[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" aria-label={star + " de 5 estrelas"} aria-pressed={rating === star} disabled={ratingSaving} onClick={() => void saveRating(star)}>{star <= (rating ?? 0) ? "★" : "☆"}</button>)}
-                </div>
-                <p className="field-hint">{ratingAverage === null ? "Ainda sem avaliações" : "Média " + ratingAverage.toFixed(1) + " de 5 · " + ratingCount + " avaliação(ões)"}</p>
-              </section>
-              {data.preparation_flowchart_url && <section className="recipe-flowchart"><strong>Fluxograma do preparo</strong><img src={data.preparation_flowchart_url} alt={"Fluxograma das etapas de " + data.recipe.title} /></section>}
-              {(data.recipe.utensils ?? []).length > 0 && (
-                <section className="recipe-utensils-list">
-                  <strong>Utensílios e equipamentos</strong>
-                  <ul className="recipe-detail-list">
-                    {data.recipe.utensils.map((utensil, index) => (
-                      <li key={index}><strong>{utensil.name}</strong>{utensil.quantity ? " · " + utensil.quantity : ""}{utensil.purpose ? " — " + utensil.purpose : ""}</li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-              <div className="recipe-detail-columns">
-                <div>
-                  <strong>Ingredientes por camada</strong>
-                  {Array.from(data.recipe.ingredients.reduce((groups, ingredient) => {
-                    const section = ingredient.section?.trim() || "Ingredientes";
-                    const items = groups.get(section) ?? [];
-                    items.push(ingredient);
-                    groups.set(section, items);
-                    return groups;
-                  }, new Map<string, typeof data.recipe.ingredients>())).map(([section, ingredients]) => (
-                    <section className="ingredient-layer" key={section}>
-                      <h3>{section}</h3>
+                  <div className="recipe-media-tools">
+                    <label className="auth-secondary-button recipe-upload-label">
+                      {mediaBusy ? "Processando…" : "Adicionar foto/capa"}
+                      <input type="file" accept="image/jpeg,image/png,image/webp" disabled={mediaBusy} onChange={(event) => { void uploadCover(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+                    </label>
+                    <button className="auth-secondary-button" type="button" disabled={mediaBusy} onClick={() => void generateFlowchart()}>Gerar fluxograma do preparo</button>
+                    {mediaMessage && <p className="field-hint" role="status">{mediaMessage}</p>}
+                  </div>
+                  <section className="recipe-rating" aria-label="Avaliação da receita">
+                    <strong>Avalie esta receita</strong>
+                    <div className="recipe-rating-stars">
+                      {[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" aria-label={star + " de 5 estrelas"} aria-pressed={rating === star} disabled={ratingSaving} onClick={() => void saveRating(star)}>{star <= (rating ?? 0) ? "★" : "☆"}</button>)}
+                    </div>
+                    <p className="field-hint">{ratingAverage === null ? "Ainda sem avaliações" : "Média " + ratingAverage.toFixed(1) + " de 5 · " + ratingCount + " avaliação(ões)"}</p>
+                  </section>
+                  {data.preparation_flowchart_url && <section className="recipe-flowchart"><strong>Fluxograma do preparo</strong><img src={data.preparation_flowchart_url} alt={"Fluxograma das etapas de " + data.recipe.title} /></section>}
+                  {(data.recipe.utensils ?? []).length > 0 && (
+                    <section className="recipe-utensils-list">
+                      <strong>Utensílios e equipamentos</strong>
                       <ul className="recipe-detail-list">
-                        {ingredients.map((ingredient, index) => (
-                          <li key={index}><span className="ingredient-icon"><IngredientIllustration name={ingredient.name} /></span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
+                        {data.recipe.utensils.map((utensil, index) => (
+                          <li key={index}><strong>{utensil.name}</strong>{utensil.quantity ? " · " + utensil.quantity : ""}{utensil.purpose ? " — " + utensil.purpose : ""}</li>
                         ))}
                       </ul>
                     </section>
-                  ))}
-                </div>
-                <div>
-                  <strong>Etapas</strong>
-                  <ol className="recipe-detail-list">
-                    {data.recipe.steps.slice().sort((a, b) => a.position - b.position).map((step) => (
-                      <li key={step.position}>
-                        {step.instruction}
-                        {step.duration_text ? ` (${step.duration_text})` : step.duration_seconds !== null ? ` (${step.duration_seconds}s)` : ""}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
+                  )}
+                  <div className="recipe-detail-columns">
+                    <div>
+                      <strong>Ingredientes por camada</strong>
+                      {Array.from(data.recipe.ingredients.reduce((groups, ingredient) => {
+                        const section = ingredient.section?.trim() || "Ingredientes";
+                        const items = groups.get(section) ?? [];
+                        items.push(ingredient);
+                        groups.set(section, items);
+                        return groups;
+                      }, new Map<string, typeof data.recipe.ingredients>())).map(([section, ingredients]) => (
+                        <section className="ingredient-layer" key={section}>
+                          <h3>{section}</h3>
+                          <ul className="recipe-detail-list">
+                            {ingredients.map((ingredient, index) => (
+                              <li key={index}><span className="ingredient-icon"><IngredientIllustration name={ingredient.name} /></span> <span>{quantityLabel(ingredient.quantity, ingredient.unit, ingredient.quantity_text)}</span> {ingredient.name}{ingredient.notes ? " — " + ingredient.notes : ""}</li>
+                            ))}
+                          </ul>
+                        </section>
+                      ))}
+                    </div>
+                    <div>
+                      <strong>Etapas</strong>
+                      <ol className="recipe-detail-list">
+                        {data.recipe.steps.slice().sort((a, b) => a.position - b.position).map((step) => (
+                          <li key={step.position}>
+                            {step.instruction}
+                            {step.duration_text ? ` (${step.duration_text})` : step.duration_seconds !== null ? ` (${step.duration_seconds}s)` : ""}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
 
-              <ShoppingListPanel recipeId={data.id} accessToken={accessToken} />
+                  <ShoppingListPanel recipeId={data.id} accessToken={accessToken} />
+                </>
+              )}
 
               {started && (
                 <KitchenMode
@@ -353,6 +357,7 @@ export default function ReceitaDetalhePage() {
                   servings={data.recipe.servings}
                   ingredients={data.recipe.ingredients}
                   steps={data.recipe.steps}
+                  utensils={data.recipe.utensils}
                   videoDisplay={data.video_display}
                 />
               )}

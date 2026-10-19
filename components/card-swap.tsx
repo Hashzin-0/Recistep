@@ -25,6 +25,7 @@ type CardSwapProps = {
   faces: CardSwapFace[];
   className?: string;
   ariaLabel?: string;
+  onActiveIndexChange?: (index: number) => void;
 };
 
 const DRAG_INTENT_PX = 12;
@@ -38,7 +39,7 @@ type Gesture = {
   active: boolean;
 };
 
-export function CardSwap({ faces, className, ariaLabel = "Modos de importação" }: CardSwapProps) {
+export function CardSwap({ faces, className, ariaLabel = "Modos de importação", onActiveIndexChange }: CardSwapProps) {
   const [index, setIndex] = useState(0);
   const [dragPx, setDragPx] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -50,6 +51,10 @@ export function CardSwap({ faces, className, ariaLabel = "Modos de importação"
   const gestureRef = useRef<Gesture | null>(null);
 
   const lastIndex = faces.length - 1;
+
+  useEffect(() => {
+    onActiveIndexChange?.(index);
+  }, [index, onActiveIndexChange]);
 
   const goTo = useCallback((next: number) => {
     setIndex((current) => {

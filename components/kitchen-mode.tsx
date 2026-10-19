@@ -19,6 +19,7 @@ import type { VideoDisplay as VideoDisplayData } from "@/lib/recipe/video-displa
 import type { ExecuteToolFn } from "@/lib/voice/live-session";
 
 type Ingredient = { name: string; quantity: number | null; unit: string | null; notes: string | null };
+type Utensil = { name: string; quantity: string | null; purpose: string | null };
 type Step = { position: number; instruction: string; duration_seconds: number | null; temperature_value: number | null; temperature_unit: "C" | "F" | null; video_start_seconds?: number | null; video_end_seconds?: number | null };
 type SessionState = { completedSteps: number[]; checkedIngredients: number[]; currentStep: number; timers: CookingTimerState[]; activeTimerId: string | null };
 const emptySession: SessionState = { completedSteps: [], checkedIngredients: [], currentStep: 0, timers: [], activeTimerId: null };
@@ -59,11 +60,12 @@ function quantityLabel(ingredient: Ingredient): string {
   return String(ingredient.quantity) + (ingredient.unit ? " " + ingredient.unit : "");
 }
 
-export function KitchenMode({ recipeId, title, description, servings, ingredients, steps, videoDisplay }: {
+export function KitchenMode({ recipeId, title, description, servings, ingredients, steps, utensils, videoDisplay }: {
   recipeId: string; title: string; description?: string | null; servings?: number | null;
-  ingredients: Ingredient[]; steps: Step[]; videoDisplay?: VideoDisplayData | null;
+  ingredients: Ingredient[]; steps: Step[]; utensils?: Utensil[] | null; videoDisplay?: VideoDisplayData | null;
 }) {
   const orderedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
+  const recipeUtensils = useMemo(() => utensils ?? [], [utensils]);
   const [session, setSession] = useState<SessionState>(emptySession);
   const [hydrated, setHydrated] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -333,6 +335,20 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
           </div>
           <p className="field-hint">Cada timer é independente, continua contando em segundo plano e é salvo neste dispositivo. Eles não controlam o forno ou outro equipamento.</p>
         </section>
+        {recipeUtensils.length > 0 && (
+          <section className="kitchen-panel" aria-label="Mise en place">
+            <div className="kitchen-section-title"><h4>Mise en place</h4><span>{recipeUtensils.length} utensílios</span></div>
+            <ul className="kitchen-utensil-list">
+              {recipeUtensils.map((utensil, index) => (
+                <li key={index}>
+                  <strong>{utensil.name}</strong>
+                  {utensil.quantity ? <small> · {utensil.quantity}</small> : null}
+                  {utensil.purpose ? <p>{utensil.purpose}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <section className="kitchen-panel" aria-label="Checklist de ingredientes">
           <div className="kitchen-section-title"><h4>Ingredientes</h4><span>{session.checkedIngredients.length}/{ingredients.length}</span></div>
           <div className="kitchen-ingredient-list">{ingredients.map((ingredient, index) => <label key={index} className={session.checkedIngredients.includes(index) ? "checked" : ""}><input type="checkbox" checked={session.checkedIngredients.includes(index)} onChange={() => toggleIngredient(index)} /><span><strong>{ingredient.name}</strong><small>{quantityLabel(ingredient)}{ingredient.notes ? " · " + ingredient.notes : ""}</small></span></label>)}</div>

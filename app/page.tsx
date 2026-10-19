@@ -114,6 +114,8 @@ export default function HomePage() {
   const [voiceSavedRecipeId, setVoiceSavedRecipeId] = useState<string | null>(null);
   const [reviewDraft, setReviewDraft] = useState<RecipeExtraction | null>(null);
   const [streamDraft, setStreamDraft] = useState<RecipeExtraction | null>(null);
+  const [activeModeIndex, setActiveModeIndex] = useState(0);
+  const [importedModeIndex, setImportedModeIndex] = useState(0);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
   const [isCancellingImport, setIsCancellingImport] = useState(false);
@@ -176,6 +178,7 @@ export default function HomePage() {
       }
       setActiveImportId(body.data.id);
       setImportRecord(body.data);
+      setImportedModeIndex(activeModeIndex);
       setTranscript("");
       setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
       return { ok: true, message: "Importação registrada; o estado aparece na tela." };
@@ -186,7 +189,7 @@ export default function HomePage() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [accessToken]);
+  }, [accessToken, activeModeIndex]);
 
   const voiceStartTranscript = useCallback(async (text: string) => {
     if (!accessToken) return { ok: false, message: "Entre com Google para criar a receita." };
@@ -717,6 +720,7 @@ export default function HomePage() {
       if (body.data?.id) {
         setActiveImportId(body.data.id);
         setImportRecord(body.data);
+        setImportedModeIndex(activeModeIndex);
         setTranscript("");
         setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
       } else {
@@ -852,6 +856,7 @@ export default function HomePage() {
             <>
               <CardSwap
                 ariaLabel="Modos de importação"
+                onActiveIndexChange={setActiveModeIndex}
                 faces={[
                   {
                     id: "link",
@@ -957,25 +962,29 @@ export default function HomePage() {
                 {voiceSavedRecipeId && (
                   <p className="field-hint"><Link href={"/minhas-receitas/" + voiceSavedRecipeId}>Abrir receita salva →</Link></p>
                 )}
-                {voiceRecipeDraft && (
-                  <div className="recipe-draft voice-recipe-draft">
-                    <h4>Revise antes de salvar</h4>
-                    <p className="field-hint">Confira o que foi reconhecido. Quantidades e tempos não informados não são inventados.</p>
-                    <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
-                    {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
-                    {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
-                    <div className="review-actions">
-                      <button className="import-button" type="button" onClick={saveVoiceRecipe} disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}>
-                        {isSavingVoiceRecipe ? "Salvando…" : "Salvar receita"}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </section>
                     ),
                   },
                 ]}
               />
+
+              {voiceRecipeDraft && (
+                <div className="recipe-draft voice-recipe-draft">
+                  <h4>Revise antes de salvar</h4>
+                  <p className="field-hint">Confira o que foi reconhecido. Quantidades e tempos não informados não são inventados.</p>
+                  {voiceRecipeMessage && (
+                    <p className="field-hint" role="status" aria-live="polite">{voiceRecipeMessage}</p>
+                  )}
+                  <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
+                  {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
+                  {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
+                  <div className="review-actions">
+                    <button className="import-button" type="button" onClick={saveVoiceRecipe} disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}>
+                      {isSavingVoiceRecipe ? "Salvando…" : "Salvar receita"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {feedback && (
                 <div className={`feedback feedback-${feedback.kind}`} role="status" aria-live="polite">
@@ -993,7 +1002,7 @@ export default function HomePage() {
             </Link>
           )}
 
-          {signedInEmail && activeImportId && importRecord && (
+          {signedInEmail && activeImportId && importRecord && activeModeIndex === importedModeIndex && (
             <section className="import-status" aria-labelledby="import-status-heading">
               <div className="import-status-heading">
                 <div>
@@ -1096,7 +1105,7 @@ export default function HomePage() {
                   <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
                   <p className="field-hint"><Link href={"/minhas-receitas/" + importRecord.recipe_id}>Abrir em Minhas receitas →</Link></p>
                   <ShoppingListPanel recipeId={importRecord.recipe_id} accessToken={accessToken} />
-                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} description={importRecord.recipe_draft.description} servings={importRecord.recipe_draft.servings} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} videoDisplay={completedVideoDisplay} />}
+                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} description={importRecord.recipe_draft.description} servings={importRecord.recipe_draft.servings} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} utensils={importRecord.recipe_draft.utensils} videoDisplay={completedVideoDisplay} />}
                 </div>
               )}
             </section>
