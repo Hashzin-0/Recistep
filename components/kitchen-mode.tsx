@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRunningTimer, formatDuration, pauseTimer, remainingTimerSeconds, resumeTimer, type CookingTimerState } from "@/lib/recipe/cooking-session";
-import { VoiceAssistantHud, type VoiceControlApi } from "@/components/voice-assistant-hud";
+import { useVoiceAssistantContext, useVoiceAssistantControls, type VoiceContextConfig } from "@/components/voice-assistant-provider";
+import { VideoDisplay } from "@/components/video-display";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildKitchenSystemInstruction } from "@/lib/voice/prompts";
 import {
@@ -12,14 +13,19 @@ import {
   withToggledStep,
   type KitchenVoiceBridge,
 } from "@/lib/voice/recipe-tools";
+import { VIDEO_TOOLS, executeVideoTool, type VideoVoiceBridge } from "@/lib/voice/video-tools";
+import type { VideoController } from "@/lib/recipe/video-player";
+import type { VideoDisplay as VideoDisplayData } from "@/lib/recipe/video-display";
 import type { ExecuteToolFn } from "@/lib/voice/live-session";
 
 type Ingredient = { name: string; quantity: number | null; unit: string | null; notes: string | null };
-type Step = { position: number; instruction: string; duration_seconds: number | null; temperature_value: number | null; temperature_unit: "C" | "F" | null };
+type Step = { position: number; instruction: string; duration_seconds: number | null; temperature_value: number | null; temperature_unit: "C" | "F" | null; video_start_seconds?: number | null; video_end_seconds?: number | null };
 type SessionState = { completedSteps: number[]; checkedIngredients: number[]; currentStep: number; timers: CookingTimerState[]; activeTimerId: string | null };
 const emptySession: SessionState = { completedSteps: [], checkedIngredients: [], currentStep: 0, timers: [], activeTimerId: null };
 
-const KITCHEN_TOOL_GROUPS = [defineToolGroup(KITCHEN_TOOLS)];
+const VIDEO_TOOL_NAMES = new Set(VIDEO_TOOLS.map((tool) => tool.name));
+const KITCHEN_TOOL_GROUP = defineToolGroup(KITCHEN_TOOLS);
+const VIDEO_TOOL_GROUP = defineToolGroup(VIDEO_TOOLS);
 
 function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]): SessionState {
   if (!value || typeof value !== "object") return emptySession;
@@ -53,9 +59,9 @@ function quantityLabel(ingredient: Ingredient): string {
   return String(ingredient.quantity) + (ingredient.unit ? " " + ingredient.unit : "");
 }
 
-export function KitchenMode({ recipeId, title, description, servings, ingredients, steps, getAccessToken }: {
+export function KitchenMode({ recipeId, title, description, servings, ingredients, steps, videoDisplay }: {
   recipeId: string; title: string; description?: string | null; servings?: number | null;
-  ingredients: Ingredient[]; steps: Step[]; getAccessToken?: () => Promise<string | null>;
+  ingredients: Ingredient[]; steps: Step[]; videoDisplay?: VideoDisplayData | null;
 }) {
   const orderedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const [session, setSession] = useState<SessionState>(emptySession);
@@ -65,7 +71,8 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   const [notice, setNotice] = useState("");
   const [online, setOnline] = useState(true);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
-  const voiceApiRef = useRef<VoiceControlApi | null>(null);
+  const voiceControls = useVoiceAssistantControls();
+  const videoControllerRef = useRef<VideoController | null>(null);
   const activeStep = orderedSteps.find((step) => step.position === session.currentStep) ?? orderedSteps[0];
   const activeTimer = session.timers.find((timer) => timer.id === session.activeTimerId) ?? session.timers[0] ?? null;
   const activeTimerStep = activeTimer ? orderedSteps.find((step) => step.position === activeTimer.stepPosition) : null;
@@ -109,9 +116,18 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   }, []);
 
   function updateSession(patch: Partial<SessionState>) { setSession((previous) => ({ ...previous, ...patch })); }
-  function chooseStep(position: number) { updateSession({ currentStep: position }); setNotice(""); }
+  function positionVideoForStep(position: number) {
+    const controller = videoControllerRef.current;
+    if (!controller?.getState().controllable) return;
+    const step = orderedSteps.find((candidate) => candidate.position === position);
+    if (!step || step.video_start_seconds == null) return;
+    controller.seek(step.video_start_seconds);
+  }
+  function chooseStep(position: number) { updateSession({ currentStep: position }); positionVideoForStep(position); setNotice(""); }
   function toggleStep(position: number) {
-    setSession((previous) => withToggledStep(previous, orderedSteps, position));
+    const next = withToggledStep(session, orderedSteps, position);
+    setSession(next);
+    positionVideoForStep(next.currentStep);
   }
   function toggleIngredient(index: number) {
     setSession((previous) => withToggledIngredient(previous, index));
@@ -196,13 +212,50 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   };
   useEffect(() => { voiceBridgeRef.current = voiceBridge; });
 
+  const videoBridgeRef = useRef<VideoVoiceBridge | null>(null);
+  const videoBridge: VideoVoiceBridge = {
+    display: videoDisplay ?? null,
+    steps: orderedSteps.map((step) => ({
+      position: step.position,
+      instruction: step.instruction,
+      video_start_seconds: step.video_start_seconds ?? null,
+      video_end_seconds: step.video_end_seconds ?? null,
+    })),
+    currentStepPosition: session.currentStep,
+    getController: () => videoControllerRef.current,
+    chooseStep,
+    setNotice,
+  };
+  useEffect(() => { videoBridgeRef.current = videoBridge; });
+
+  const toolGroups = useMemo(
+    () => (videoDisplay ? [KITCHEN_TOOL_GROUP, VIDEO_TOOL_GROUP] : [KITCHEN_TOOL_GROUP]),
+    [videoDisplay],
+  );
+
   const executeTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
     const bridge = voiceBridgeRef.current;
     if (!bridge) return { success: false, error: "Modo cozinha ainda não carregou a receita." };
+    if (VIDEO_TOOL_NAMES.has(name)) {
+      const videoBridgeNow = videoBridgeRef.current;
+      if (!videoBridgeNow) return { success: false, error: "O vídeo ainda não está pronto." };
+      return executeVideoTool(videoBridgeNow, name, args, setActionLabel);
+    }
     const output = executeKitchenTool(bridge, name, args, setActionLabel);
-    if (name === "stopVoiceGuidance") voiceApiRef.current?.requestDisconnect();
+    if (name === "stopVoiceGuidance") voiceControls.requestDisconnect();
     return output;
-  }, []);
+  }, [voiceControls]);
+
+  const voiceContext = useMemo<VoiceContextConfig>(() => ({
+    key: "kitchen:" + recipeId,
+    contextLabel: "Preparo da receita",
+    systemInstruction,
+    toolGroups,
+    executeTool,
+    thinkingLevel: "low",
+  }), [recipeId, systemInstruction, toolGroups, executeTool]);
+
+  useVoiceAssistantContext(voiceContext);
 
   const announcedTimersRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -213,7 +266,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
       announcedTimersRef.current.add(timer.id);
       const timerStep = orderedSteps.find((step) => step.position === timer.stepPosition);
       const stepNumber = timerStep ? orderedSteps.findIndex((step) => step.position === timerStep.position) + 1 : null;
-      voiceApiRef.current?.sendText(
+      voiceControls.sendText(
         `Aviso do sistema: o temporizador ${timer.id}, ${stepNumber ? `da etapa ${stepNumber}` : ""} terminou. ` +
         "Avise o usuário em voz alta, identifique qual timer terminou e pergunte se quer fazer algo com ele.",
       );
@@ -251,17 +304,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
         </ol>
       </div>
       <aside className="kitchen-side-column">
-        {getAccessToken && (
-          <VoiceAssistantHud
-            contextLabel="Preparo da receita"
-            systemInstruction={systemInstruction}
-            toolGroups={KITCHEN_TOOL_GROUPS}
-            executeTool={executeTool}
-            getAccessToken={getAccessToken}
-            thinkingLevel="low"
-            apiRef={voiceApiRef}
-          />
-        )}
+        {videoDisplay && <VideoDisplay ref={videoControllerRef} display={videoDisplay} title={title} className="kitchen-video" />}
         <section className="kitchen-panel" aria-label="Temporizadores da receita">
           <div className="kitchen-section-title"><h4>Temporizadores</h4><span>{session.timers.length} na sessão</span></div>
           {session.timers.length > 0 && <div className="kitchen-timer-list">

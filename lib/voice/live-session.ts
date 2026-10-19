@@ -595,6 +595,37 @@ export function useLiveSession({
     void openSocket();
   }, [openSocket]);
 
+  /**
+   * Reabre a sessão com a configuração atual (instrução/ferramentas). Usado
+   * quando a tela muda de contexto: a Live API fixa o setup no handshake, então
+   * trocar de aba exige um novo setup. Derruba o socket antigo antes para que
+   * `onclose` não dispare o fluxo de reconexão padrão.
+   */
+  const reconnect = useCallback(() => {
+    if (!stateRef.current.isConnected && !stateRef.current.isConnecting) {
+      reconnectAttemptsRef.current = 0;
+      void openSocket();
+      return;
+    }
+    clearSetupTimer();
+    clearReconnectTimer();
+    const socket = wsRef.current;
+    wsRef.current = null;
+    if (socket) {
+      try {
+        socket.close();
+      } catch {
+        // Socket already closed.
+      }
+    }
+    streamerRef.current?.stopRecording();
+    streamerRef.current?.stopPlayback();
+    setupCompletedRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    manualCloseRef.current = false;
+    void openSocket({ reuseCredentials: true });
+  }, [clearReconnectTimer, clearSetupTimer, openSocket]);
+
   const toggleMute = useCallback(() => {
     setState((previous) => ({ ...previous, isMuted: !previous.isMuted }));
   }, []);
@@ -638,6 +669,7 @@ export function useLiveSession({
     state,
     connect,
     disconnect,
+    reconnect,
     toggleMute,
     toggleConnection,
     sendText,

@@ -1,3 +1,4 @@
+import { buildVideoDisplay, type VideoDisplay } from "@/lib/recipe/video-display";
 import type { IngredientExtraction, PreparationStepExtraction, RecipeExtraction, UtensilExtraction } from "@/lib/schemas/recipe";
 
 export function emptyIngredient(): IngredientExtraction {
@@ -26,6 +27,8 @@ export function emptyStep(position: number): PreparationStepExtraction {
     duration_max_seconds: null,
     temperature_value: null,
     temperature_unit: null,
+    video_start_seconds: null,
+    video_end_seconds: null,
     source_evidence: null,
     confidence: 1,
   };
@@ -57,6 +60,9 @@ export type DbRecipeRow = {
   source_url: string | null;
   cover_image_url?: string | null;
   preparation_flowchart_url?: string | null;
+  source_platform?: string | null;
+  source_thumbnail_url?: string | null;
+  source_video_url?: string | null;
   source_language: string | null;
   servings: number | null;
   prep_seconds: number | null;
@@ -105,6 +111,8 @@ export type DbStepRow = {
   duration_max_seconds: number | null;
   temperature_value: number | null;
   temperature_unit: "C" | "F" | null;
+  video_start_seconds?: number | null;
+  video_end_seconds?: number | null;
   source_evidence: string | null;
   confidence: number;
 };
@@ -121,6 +129,9 @@ export type RecipeSummary = {
   steps_count: number;
   cover_image_url?: string | null;
   source_url: string | null;
+  source_platform?: string | null;
+  source_thumbnail_url?: string | null;
+  source_video_url?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -165,6 +176,8 @@ export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredient
       duration_max_seconds: step.duration_max_seconds,
       temperature_value: step.temperature_value,
       temperature_unit: step.temperature_unit,
+      video_start_seconds: step.video_start_seconds ?? null,
+      video_end_seconds: step.video_end_seconds ?? null,
       source_evidence: step.source_evidence,
       confidence: step.confidence,
     }));
@@ -188,6 +201,16 @@ export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredient
   };
 }
 
+export function videoDisplayFromDbRecipe(recipe: DbRecipeRow): VideoDisplay | null {
+  return buildVideoDisplay({
+    platform: recipe.source_platform,
+    sourceUrl: recipe.source_url,
+    thumbnailUrl: recipe.source_thumbnail_url,
+    videoUrl: recipe.source_video_url,
+    title: recipe.title,
+  });
+}
+
 export type RecipeApiData = {
   id: string;
   source_url: string | null;
@@ -195,6 +218,7 @@ export type RecipeApiData = {
   updated_at: string;
   cover_image_url: string | null;
   preparation_flowchart_url: string | null;
+  video_display: VideoDisplay | null;
   recipe: RecipeExtraction;
 };
 
@@ -206,6 +230,7 @@ export function recipeApiData(detail: RecipeDetail): RecipeApiData {
     updated_at: detail.recipe.updated_at,
     cover_image_url: detail.recipe.cover_image_url ?? null,
     preparation_flowchart_url: detail.recipe.preparation_flowchart_url ?? null,
+    video_display: videoDisplayFromDbRecipe(detail.recipe),
     recipe: draftFromDbRecipe(detail.recipe, detail.ingredients, detail.steps, detail.utensils),
   };
 }
@@ -223,6 +248,9 @@ export function recipeSummary(recipe: DbRecipeRow, ingredientsCount: number, ste
     steps_count: stepsCount,
     source_url: recipe.source_url,
     cover_image_url: recipe.cover_image_url ?? null,
+    source_platform: recipe.source_platform ?? null,
+    source_thumbnail_url: recipe.source_thumbnail_url ?? null,
+    source_video_url: recipe.source_video_url ?? null,
     created_at: recipe.created_at,
     updated_at: recipe.updated_at,
   };

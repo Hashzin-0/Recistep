@@ -80,4 +80,18 @@ describe("recipeExtractionSchema", () => {
 
     expect(recipeExtractionSchema.safeParse(invalidQuantity).success).toBe(false);
   });
+
+  it("accepts step video marks and rejects an inverted range", () => {
+    const withVideo = {
+      ...validRecipe,
+      steps: [{ ...validRecipe.steps[0], video_start_seconds: 30, video_end_seconds: 90 }],
+    };
+    expect(recipeExtractionSchema.safeParse(withVideo).success).toBe(true);
+
+    const inverted = {
+      ...validRecipe,
+      steps: [{ ...validRecipe.steps[0], video_start_seconds: 90, video_end_seconds: 30 }],
+    };
+    expect(recipeExtractionSchema.safeParse(inverted).success).toBe(false);
+  });
 });

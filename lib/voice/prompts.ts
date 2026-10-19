@@ -1,4 +1,5 @@
 import type { RecipeExtraction } from "@/lib/schemas/recipe";
+import { formatVideoClock } from "@/lib/recipe/video-player";
 import { quantityLabel, type KitchenIngredient, type KitchenStep } from "@/lib/voice/recipe-tools";
 
 // O prompt fixa a persona e as regras; o conteúdo da receita entra junto quando
@@ -20,7 +21,9 @@ const COOKING_RULES = [
   "- Temporizadores são relógios reais controlados pelo aplicativo. Ao iniciar um, confirme apenas que foi iniciado e informe a duração retornada pela ferramenta. Nunca diga que terminou imediatamente após iniciá-lo.",
   "- Vários temporizadores podem rodar ao mesmo tempo. Use getTimerStatus para listar todos; pauseOrResumeTimer e resetTimer aceitam timer_id. Sem timer_id, atuam apenas no temporizador selecionado. Nunca afirme que pausar um timer pausa os demais.",
   "- Para verificar se um temporizador terminou, consulte getTimerStatus ou aguarde o aviso explícito do aplicativo. Só anuncie que terminou quando o estado retornado indicar finished=true ou o aplicativo enviar o evento de término.",
-  "- Nunca deduza a passagem do tempo pela duração da chamada de ferramenta, pela resposta da API ou pelo tempo de conversa."
+  "- Não deduza a passagem do tempo pela duração da chamada de ferramenta, pela resposta da API ou pelo tempo de conversa.",
+  "- Use getVideoStatus antes de prometer controle de vídeo: com controllable=true, controle por voz (playVideo, pauseVideo, toggleVideo, seekVideoToStep, replayVideoStep, nextVideoStep, previousVideoStep, seekVideoBy, replayLastSeconds, setVideoPlaybackRate); com controllable=false, explique que os controles ficam na tela.",
+  "- Ao conduzir uma etapa com tempo de vídeo marcado, posicione o vídeo com seekVideoToStep/replayVideoStep; use apenas os tempos retornados pelas ferramentas e nunca invente posições."
 ].join("\n");
 
 const EDITING_RULES = [
@@ -50,6 +53,7 @@ function formatStep(step: KitchenStep, index: number): string {
   const details: string[] = [];
   if (step.duration_seconds !== null) details.push(`${Math.round(step.duration_seconds / 60)} min`);
   if (step.temperature_value !== null) details.push(`${step.temperature_value}°${step.temperature_unit ?? "C"}`);
+  if (step.video_start_seconds != null) details.push(`vídeo em ${formatVideoClock(step.video_start_seconds)}`);
   const suffix = details.length > 0 ? ` [${details.join(", ")}]` : "";
   return `${index + 1}. ${step.instruction}${suffix}`;
 }

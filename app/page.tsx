@@ -4,19 +4,28 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { CardSwap } from "@/components/card-swap";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { RecipeEditor } from "@/components/recipe-editor";
 import { KitchenMode } from "@/components/kitchen-mode";
-import { VoiceAssistantHud, type VoiceControlApi } from "@/components/voice-assistant-hud";
+import { useVoiceAssistantContext, useVoiceAssistantControls, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { VoiceTranscriptInput } from "@/components/voice-transcript-input";
 import { PageTransition } from "@/components/view-transition";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildReviewSystemInstruction } from "@/lib/voice/prompts";
 import { RECIPE_EDIT_TOOLS, executeRecipeEditTool } from "@/lib/voice/recipe-tools";
+import { buildVideoDisplay } from "@/lib/recipe/video-display";
 import type { ExecuteToolFn } from "@/lib/voice/live-session";
 import type { RecipeExtraction } from "@/lib/schemas/recipe";
 
 const REVIEW_TOOL_GROUPS = [defineToolGroup(RECIPE_EDIT_TOOLS)];
+
+const HOME_SYSTEM_INSTRUCTION = [
+  "Você é o assistente de voz do Recistep. Fale em português do Brasil, de forma curta e natural.",
+  "Ajude a importar receitas de links (YouTube, TikTok, Instagram), arquivos e transcrições ditadas.",
+  "Quando uma receita estiver em revisão, as ferramentas de edição ficam disponíveis; antes disso, apenas oriente o usuário.",
+  "Nunca invente dados de uma receita que ainda não foi importada.",
+].join("\n");
 
 type ImportFeedback =
   | { kind: "error"; message: string }
@@ -29,7 +38,9 @@ type ImportRecord = {
   recipe_id?: string | null;
   error_message?: string | null;
   error_code?: string | null;
-  source_metadata?: { title?: string; author_name?: string | null } | null;
+  source_url?: string | null;
+  platform?: "youtube" | "tiktok" | "instagram" | null;
+  source_metadata?: { title?: string; author_name?: string | null; thumbnail_url?: string | null; media_url?: string | null } | null;
   recipe_draft?: RecipeExtraction | null;
 };
 
@@ -67,14 +78,27 @@ export default function HomePage() {
   const [streamDraft, setStreamDraft] = useState<RecipeExtraction | null>(null);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
-  const reviewVoiceApiRef = useRef<VoiceControlApi | null>(null);
   const reviewDraftRef = useRef(reviewDraft);
   useEffect(() => { reviewDraftRef.current = reviewDraft; }, [reviewDraft]);
+  const voiceControls = useVoiceAssistantControls();
 
   const reviewSystemInstruction = useMemo(
     () => (reviewDraft ? buildReviewSystemInstruction(reviewDraft) : ""),
     [reviewDraft],
   );
+
+  const completedVideoDisplay = useMemo(() => {
+    if (!importRecord || importRecord.status !== "completed") return null;
+    const meta = importRecord.source_metadata ?? {};
+    return buildVideoDisplay({
+      platform: importRecord.platform ?? null,
+      sourceUrl: importRecord.source_url ?? null,
+      thumbnailUrl: meta.thumbnail_url ?? null,
+      videoUrl: meta.media_url ?? null,
+      title: importRecord.recipe_draft?.title ?? meta.title ?? null,
+      authorName: meta.author_name ?? null,
+    });
+  }, [importRecord]);
 
   const executeReviewTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
     const draft = reviewDraftRef.current;
@@ -89,6 +113,28 @@ export default function HomePage() {
       setActionLabel,
     );
   }, []);
+
+  const voiceContext = useMemo<VoiceContextConfig>(() => (
+    reviewDraft
+      ? {
+          key: "review",
+          contextLabel: "Edição da receita",
+          systemInstruction: reviewSystemInstruction,
+          toolGroups: REVIEW_TOOL_GROUPS,
+          executeTool: executeReviewTool,
+          thinkingLevel: "low",
+        }
+      : {
+          key: "home",
+          contextLabel: "Assistente de cozinha",
+          systemInstruction: HOME_SYSTEM_INSTRUCTION,
+          toolGroups: [],
+          executeTool: executeReviewTool,
+          thinkingLevel: "low",
+        }
+  ), [reviewDraft, reviewSystemInstruction, executeReviewTool]);
+
+  useVoiceAssistantContext(voiceContext);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -342,7 +388,7 @@ export default function HomePage() {
         recipe_id: body.data!.recipe_id,
         recipe_draft: reviewDraft,
       } : previous);
-      reviewVoiceApiRef.current?.disconnect();
+      voiceControls.disconnect();
       setFeedback({ kind: "info", message: body.data.already_confirmed ? "Esta receita já estava confirmada." : "Receita confirmada e salva com ingredientes e etapas." });
     } catch {
       setFeedback({ kind: "error", message: "Falha de conexão ao confirmar a receita." });
@@ -536,7 +582,8 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="import-card">
+        <div className="import-column">
+          <div className="import-card">
           <div className="card-kicker">Importar receita</div>
           <h2>Encontrou algo gostoso?</h2>
           <p className="card-description">
@@ -548,6 +595,13 @@ export default function HomePage() {
 
           {signedInEmail && (
             <>
+              <CardSwap
+                ariaLabel="Modos de importação"
+                faces={[
+                  {
+                    id: "link",
+                    label: "Link",
+                    content: (
               <form onSubmit={handleImport}>
                 <label htmlFor="source-url">Link do vídeo</label>
                 <div className="url-field">
@@ -576,7 +630,12 @@ export default function HomePage() {
                   YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
                 </p>
               </form>
-
+                    ),
+                  },
+                  {
+                    id: "file",
+                    label: "Arquivo",
+                    content: (
               <form className="file-recipe-import" onSubmit={handleFileRecipeSubmit}>
                 <label htmlFor="recipe-file">Ou importe um arquivo</label>
                 <p className="field-hint">PDF, imagem (JPG, PNG, WebP) ou vídeo (MP4, WebM, MOV), até 4 MB.</p>
@@ -605,11 +664,12 @@ export default function HomePage() {
                   {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
                 </span>
               </form>
-
-              <Link className="manual-create-link" href="/minhas-receitas/nova">
-                Ou crie uma receita manualmente →
-              </Link>
-
+                    ),
+                  },
+                  {
+                    id: "transcript",
+                    label: "Transcrição",
+                    content: (
               <section className="voice-recipe-workspace" aria-labelledby="voice-recipe-heading">
                 <span className="auth-label">Sem precisar de um link</span>
                 <h3 id="voice-recipe-heading">Dite uma receita</h3>
@@ -645,6 +705,10 @@ export default function HomePage() {
                   </div>
                 )}
               </section>
+                    ),
+                  },
+                ]}
+              />
 
               {feedback && (
                 <div className={`feedback feedback-${feedback.kind}`} role="status" aria-live="polite">
@@ -653,6 +717,13 @@ export default function HomePage() {
                 </div>
               )}
             </>
+          )}
+          </div>
+
+          {signedInEmail && (
+            <Link className="manual-create-link" href="/minhas-receitas/nova">
+              Ou crie uma receita manualmente →
+            </Link>
           )}
 
           {signedInEmail && activeImportId && importRecord && (
@@ -748,33 +819,13 @@ export default function HomePage() {
                   <strong>{importRecord.recipe_draft?.title ?? "Receita salva"}</strong>
                   <p className="field-hint"><Link href={"/minhas-receitas/" + importRecord.recipe_id}>Abrir em Minhas receitas →</Link></p>
                   <ShoppingListPanel recipeId={importRecord.recipe_id} accessToken={accessToken} />
-                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} description={importRecord.recipe_draft.description} servings={importRecord.recipe_draft.servings} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} getAccessToken={getAccessToken} />}
+                  {importRecord.recipe_draft && <KitchenMode recipeId={importRecord.recipe_id} title={importRecord.recipe_draft.title} description={importRecord.recipe_draft.description} servings={importRecord.recipe_draft.servings} ingredients={importRecord.recipe_draft.ingredients} steps={importRecord.recipe_draft.steps} videoDisplay={completedVideoDisplay} />}
                 </div>
               )}
             </section>
           )}
 
-          {signedInEmail && (
-            <>
-              <div className="supported-divider"><span /> Feito para receitas reais <span /></div>
-              <div className="source-list" aria-label="Plataformas reconhecidas">
-                <span className="source-chip"><span className="source-icon youtube">▶</span> YouTube</span>
-                <span className="source-chip"><span className="source-icon tiktok">♪</span> TikTok</span>
-                <span className="source-chip"><span className="source-icon instagram">◎</span> Instagram</span>
-              </div>
-              <p className="privacy-note"><span aria-hidden="true">↗</span> Não contornamos conteúdo privado nem restrições das plataformas.</p>
-            </>
-          )}
         </div>
-        {signedInEmail && <VoiceAssistantHud
-          contextLabel={reviewDraft ? "Edição da receita" : "Assistente de cozinha"}
-          systemInstruction={reviewSystemInstruction || "Você é o assistente de voz do Recistep. Fale em português do Brasil, ajude com dúvidas sobre receitas e explique que ferramentas de edição ficam disponíveis quando uma receita estiver em revisão. Não invente dados de uma receita que ainda não foi importada."}
-          toolGroups={reviewDraft ? REVIEW_TOOL_GROUPS : []}
-          executeTool={executeReviewTool}
-          getAccessToken={getAccessToken}
-          thinkingLevel="low"
-          apiRef={reviewVoiceApiRef}
-        />}
       </section>
 
       <section className="workflow" aria-labelledby="workflow-heading">

@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
 import { PageTransition } from "@/components/view-transition";
 import { KitchenMode } from "@/components/kitchen-mode";
+import { VideoDisplay } from "@/components/video-display";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { apiFetch } from "@/lib/client/api";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
@@ -21,7 +22,7 @@ function quantityLabel(quantity: number | null, unit: string | null, text: strin
 export default function ReceitaDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { accessToken, signedInEmail, getAccessToken } = useAuth();
+  const { accessToken, signedInEmail } = useAuth();
   const [data, setData] = useState<RecipeApiData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -49,6 +50,11 @@ export default function ReceitaDetalhePage() {
   }, [accessToken, id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("preparo") === "1") setStarted(true);
+  }, []);
 
   useEffect(() => {
     if (!accessToken || !id) return;
@@ -138,6 +144,8 @@ export default function ReceitaDetalhePage() {
                 </button>
               </div>
 
+              {data.video_display && <VideoDisplay display={data.video_display} title={data.recipe.title} />}
+
               <div className="recipe-media-tools">
                 <label className="auth-secondary-button recipe-upload-label">
                   {mediaBusy ? "Processando…" : "Adicionar foto/capa"}
@@ -207,7 +215,7 @@ export default function ReceitaDetalhePage() {
                   servings={data.recipe.servings}
                   ingredients={data.recipe.ingredients}
                   steps={data.recipe.steps}
-                  getAccessToken={getAccessToken}
+                  videoDisplay={data.video_display}
                 />
               )}
             </section>

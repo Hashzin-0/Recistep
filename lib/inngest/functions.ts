@@ -79,18 +79,22 @@ export const processImportRequested = inngest.createFunction(
     }
 
     const metadata = resolved.metadata;
-    await step.run("persist-public-source-metadata", async () => updateSourceImport(id, {
-      status: "processing",
-      source_metadata: metadata,
-      error_code: null,
-      error_message: null,
-    }));
-
+    const content = resolved.content;
     // Recognizing a URL never guarantees the media can be acquired. The content
     // is analyzed as a public video URL when the provider can fetch it, then as
     // public caption/subtitle text, and only then an authorized transcript is
     // requested instead of reporting a false success.
-    const content = resolved.content;
+    // The direct CDN URL is persisted only for external media (a real playable
+    // file); YouTube keeps its embed URL and never a page URL as video source.
+    const persistedMetadata = content.kind === "external_media"
+      ? { ...metadata, media_url: content.mediaUrl }
+      : metadata;
+    await step.run("persist-public-source-metadata", async () => updateSourceImport(id, {
+      status: "processing",
+      source_metadata: persistedMetadata,
+      error_code: null,
+      error_message: null,
+    }));
 
     if (isUnsupportedContent(content)) {
       await step.run("persist-unanalyzable-source", async () => updateSourceImport(id, {

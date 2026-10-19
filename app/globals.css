@@ -503,43 +503,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .feedback-info { background: var(--info-bg); color: var(--info-ink); box-shadow: inset 0 0 0 1px #33441f; }
 .feedback-info > span { background: #364a22; color: var(--info-ink); }
 
-/* Supported sources */
-.supported-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 28px 0 16px;
-  color: var(--faint);
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.supported-divider span { height: 1px; flex: 1; background: var(--line); }
-.source-list { display: flex; flex-wrap: wrap; gap: 9px; }
-.source-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border-radius: var(--radius-pill);
-  background: var(--card);
-  box-shadow: var(--clay-sm);
-  color: var(--ink);
-  font-size: 13px;
-}
-.source-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; font-size: 13px; font-weight: 800; }
-.youtube { color: #ed6a5e; }
-.tiktok { color: #ecebe6; }
-.instagram { color: #d07aa2; }
-.privacy-note { display: flex; gap: 8px; align-items: center; margin: 18px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
-
 /* File import + manual link */
 .file-recipe-import {
   display: grid;
   gap: 10px;
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line-soft);
 }
 .file-recipe-import > label { color: var(--ink); font-size: 13.5px; font-weight: 600; }
 .file-recipe-import > .field-hint { margin: 0; }
@@ -559,8 +526,79 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   box-shadow: var(--clay-sm);
 }
 .file-recipe-controls .import-button { flex: 0 0 auto; }
-.manual-create-link { display: inline-flex; margin-top: 16px; color: var(--accent-soft); font-size: 13px; font-weight: 700; }
+.manual-create-link { display: inline-flex; margin-top: 14px; color: var(--accent-soft); font-size: 13px; font-weight: 700; }
 @media (hover: hover) and (pointer: fine) { .manual-create-link:hover { text-decoration: underline; } }
+
+/* ------------------------------------------------------------------ *
+ * Import modes card swap
+ * ------------------------------------------------------------------ */
+.import-column { width: 100%; min-width: 0; }
+.card-swap { margin-top: 6px; }
+.card-swap-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.card-swap-tabs {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  box-shadow: var(--well);
+}
+.card-swap-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--t-hover) ease, background-color var(--t-hover) ease, box-shadow var(--t-hover) ease;
+}
+.card-swap-tab.is-active { background: var(--card-2); color: var(--ink); box-shadow: var(--clay-sm); }
+.card-swap-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card-swap-arrow {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--card-2);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--clay-sm);
+  transition: background-color var(--t-hover) ease, transform var(--t-press) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) { .card-swap-arrow:hover:not(:disabled) { background: #2b251d; } }
+.card-swap-arrow:active:not(:disabled) { transform: translateY(1px); }
+.card-swap-arrow:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+.card-swap-viewport {
+  overflow: hidden;
+  touch-action: pan-y;
+  transition: height var(--t-ui) var(--ease-out);
+}
+.card-swap-track {
+  display: flex;
+  align-items: flex-start;
+  transition: transform var(--t-ui) var(--ease-out);
+  will-change: transform;
+}
+.card-swap-track.is-dragging { transition: none; }
+.card-swap-face { flex: 0 0 100%; width: 100%; min-width: 0; }
+.card-swap-face .file-recipe-import,
+.card-swap-face .voice-recipe-workspace { margin-top: 0; padding-top: 0; border-top: 0; }
 
 /* ------------------------------------------------------------------ *
  * Workflow (a real ordered list — order matters, no card grid)
@@ -972,6 +1010,40 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .kitchen-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr); align-items: start; gap: 18px; }
 .kitchen-step-column, .kitchen-side-column { min-width: 0; }
 .kitchen-side-column { display: grid; gap: 18px; }
+
+.video-display {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface-lit);
+  box-shadow: var(--clay-sm);
+}
+.video-display-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.video-display-heading strong { font-size: 15px; }
+.video-display-heading a { color: var(--accent); font-size: 12.5px; text-decoration: none; }
+.video-display-heading a:hover { text-decoration: underline; }
+.video-display-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--radius-sm); background: #000; box-shadow: var(--well); }
+.video-display-native, .video-display-embed { width: 100%; height: 100%; border: 0; display: block; }
+.video-display-thumb { display: block; border-radius: var(--radius-sm); overflow: hidden; box-shadow: var(--well); }
+.video-display-thumb img { display: block; width: 100%; height: auto; }
+.video-display-controls { display: flex; align-items: center; gap: 12px; }
+.video-display-controls button {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  box-shadow: var(--clay-sm);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 15px;
+}
+.video-display-controls input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
+.video-display-time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+
 .kitchen-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .kitchen-section-title h4 { margin: 0; font-size: 16px; }
 .kitchen-section-title > span { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
@@ -1072,6 +1144,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-orb-canvas { display: block; width: 100%; height: 100%; }
 .voice-orb:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .voice-orb-control { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.voice-activate-button {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--card-2);
+  color: var(--ink);
+  box-shadow: var(--clay-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.voice-activate-button:hover { transform: translateY(-1px); box-shadow: var(--clay); }
+.voice-activate-button:active { transform: translateY(0); box-shadow: var(--well); }
+.voice-activate-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.voice-activate-button svg { width: 26px; height: 26px; }
 .voice-transcript-input { display: grid; gap: 12px; margin: 18px 0 12px; }
 .voice-transcript-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .voice-transcript-controls .field-hint { margin: 0; }
@@ -1130,7 +1221,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .page-main.is-authenticated-workspace .hero-copy,
 .page-main.is-authenticated-workspace .workflow,
 .page-main.is-authenticated-workspace .footer { display: none; }
-.page-main.is-authenticated-workspace .import-card { width: min(100%, 940px); margin: 0 auto; }
+.page-main.is-authenticated-workspace .import-column { width: min(100%, 940px); margin: 0 auto; }
 .page-main.is-authenticated-workspace .sign-in-prompt { display: none; }
 
 /* ------------------------------------------------------------------ *
@@ -1212,7 +1303,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .header-voice-slot { width: 44px; height: 44px; flex-basis: 44px; }
   #voice-assistant-slot .voice-hud { width: 44px; height: 44px; }
   #voice-assistant-slot .voice-orb,
-  #voice-assistant-slot .voice-orb-control { width: 44px; height: 44px; }
+  #voice-assistant-slot .voice-orb-control,
+  #voice-assistant-slot .voice-activate-button { width: 44px; height: 44px; }
+  #voice-assistant-slot .voice-activate-button svg { width: 22px; height: 22px; }
   #voice-assistant-slot .voice-microphone-toggle { width: 22px; height: 22px; right: -2px; bottom: -2px; }
   .review-actions { flex-direction: column; }
   .review-actions button { width: 100%; }

@@ -73,6 +73,8 @@ function coerceStep(value: unknown, index: number): PreparationStepExtraction | 
     duration_max_seconds: intOrNull(value.duration_max_seconds),
     temperature_value: numberOrNull(value.temperature_value),
     temperature_unit: unit === "C" || unit === "F" ? unit : null,
+    video_start_seconds: intOrNull(value.video_start_seconds),
+    video_end_seconds: intOrNull(value.video_end_seconds),
     source_evidence: stringOrNull(value.source_evidence)?.trim() || null,
     confidence: confidence === null ? 0 : Math.min(1, Math.max(0, confidence)),
   };

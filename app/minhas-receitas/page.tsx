@@ -1,12 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
 import { PageTransition } from "@/components/view-transition";
+import { useVoiceAssistantContext, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { apiFetch } from "@/lib/client/api";
+import { defineToolGroup } from "@/lib/voice/function-tool";
+import { LIBRARY_TOOLS, executeLibraryTool, type LibraryRecipe, type LibraryVoiceBridge } from "@/lib/voice/library-tools";
+import type { ExecuteToolFn } from "@/lib/voice/live-session";
 import type { RecipeSummary } from "@/lib/recipe/recipe-draft";
+
+const LIBRARY_TOOL_GROUPS = [defineToolGroup(LIBRARY_TOOLS)];
+
+const LIBRARY_SYSTEM_INSTRUCTION = [
+  "Você é o assistente de voz do Recistep na tela 'Minhas receitas'.",
+  "Fale em português do Brasil, de forma curta e natural.",
+  "Ajude o usuário a escolher uma receita salva: liste com listRecipes, procure pelo nome com findRecipes e abra a escolhida com openRecipe.",
+  "Quando o usuário quiser cozinhar, abra a receita com start_prep=true e depois conduza o preparo.",
+  "Nunca invente receitas, ingredientes ou tempos que não estejam nos dados listados.",
+].join("\n");
+
+function toLibraryRecipe(recipe: RecipeSummary): LibraryRecipe {
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    description: recipe.description,
+    ingredients_count: recipe.ingredients_count,
+    steps_count: recipe.steps_count,
+    servings: recipe.servings,
+    total_seconds: recipe.total_seconds,
+    prep_seconds: recipe.prep_seconds,
+    source_platform: recipe.source_platform ?? null,
+  };
+}
 
 function formatMinutes(seconds: number | null): string | null {
   if (seconds === null) return null;
@@ -16,6 +45,7 @@ function formatMinutes(seconds: number | null): string | null {
 
 export default function MinhasReceitasPage() {
   const { accessToken, signedInEmail } = useAuth();
+  const router = useRouter();
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +80,33 @@ export default function MinhasReceitasPage() {
       setBusyId(null);
     }
   }
+
+  const libraryBridgeRef = useRef<LibraryVoiceBridge | null>(null);
+  const openRecipe = useCallback((recipeId: string, startPrep: boolean) => {
+    router.push("/minhas-receitas/" + recipeId + (startPrep ? "?preparo=1" : ""));
+  }, [router]);
+  const libraryBridge = useMemo<LibraryVoiceBridge>(
+    () => ({ recipes: recipes.map(toLibraryRecipe), actions: { open: openRecipe } }),
+    [recipes, openRecipe],
+  );
+  useEffect(() => { libraryBridgeRef.current = libraryBridge; }, [libraryBridge]);
+
+  const executeVoiceTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const bridge = libraryBridgeRef.current;
+    if (!bridge) return { success: false, error: "A lista de receitas ainda não carregou." };
+    return executeLibraryTool(bridge, name, args, setActionLabel);
+  }, []);
+
+  const voiceContext = useMemo<VoiceContextConfig>(() => ({
+    key: "library",
+    contextLabel: "Minhas receitas",
+    systemInstruction: LIBRARY_SYSTEM_INSTRUCTION,
+    toolGroups: LIBRARY_TOOL_GROUPS,
+    executeTool: executeVoiceTool,
+    thinkingLevel: "low",
+  }), [executeVoiceTool]);
+
+  useVoiceAssistantContext(voiceContext);
 
   return (
     <PageTransition>

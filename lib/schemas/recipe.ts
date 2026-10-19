@@ -38,11 +38,16 @@ export const preparationStepExtractionSchema = z.object({
   duration_max_seconds: z.number().int().min(0).max(86_400).nullish(),
   temperature_value: z.number().finite().nullable(),
   temperature_unit: z.enum(["C", "F"]).nullable(),
+  video_start_seconds: z.number().int().min(0).max(604_800).nullish(),
+  video_end_seconds: z.number().int().min(0).max(604_800).nullish(),
   source_evidence: z.string().trim().max(1_000).nullable(),
   confidence: confidenceSchema,
 }).strict().superRefine((step, context) => {
   if (step.duration_min_seconds != null && step.duration_max_seconds != null && step.duration_min_seconds > step.duration_max_seconds) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration_min_seconds"], message: "A duração mínima não pode ser maior que a máxima." });
+  }
+  if (step.video_start_seconds != null && step.video_end_seconds != null && step.video_start_seconds > step.video_end_seconds) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["video_start_seconds"], message: "O início no vídeo não pode ser depois do fim." });
   }
 });
 

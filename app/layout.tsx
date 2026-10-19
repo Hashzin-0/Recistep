@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AppHeader } from "@/components/app-header";
 import { Motion } from "@/components/motion";
+import { VoiceAssistantProvider } from "@/components/voice-assistant-provider";
 
 export const metadata: Metadata = {
   title: "Recistep — cozinhe no seu ritmo",
@@ -31,8 +32,10 @@ export default function RootLayout({
         />
         <AuthProvider>
           <Motion />
-          <AppHeader />
-          {children}
+          <VoiceAssistantProvider>
+            <AppHeader />
+            {children}
+          </VoiceAssistantProvider>
         </AuthProvider>
       </body>
     </html>

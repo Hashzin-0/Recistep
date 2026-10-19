@@ -266,6 +266,57 @@ export async function setShoppingItemPurchased(input: {
   });
   return rows[0] ?? null;
 }
+export function normalizeShoppingItemName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+async function touchShoppingList(listId: string): Promise<void> {
+  const params = new URLSearchParams({ id: "eq." + listId });
+  await supabaseRequest<void>("shopping_lists?" + params.toString(), {
+    method: "PATCH",
+    body: JSON.stringify({ updated_at: new Date().toISOString() }),
+  });
+}
+export async function addShoppingItemForUser(input: {
+  listId: string; userId: string; name: string; quantity?: number | null; unit?: string | null; notes?: string | null;
+}): Promise<ShoppingListItemRecord | null> {
+  const listParams = new URLSearchParams({ select: "id", id: "eq." + input.listId, user_id: "eq." + input.userId, limit: "1" });
+  const lists = await supabaseRequest<Array<{ id: string }>>("shopping_lists?" + listParams.toString());
+  if (!lists[0]) return null;
+  const positionParams = new URLSearchParams({ select: "position", shopping_list_id: "eq." + input.listId, order: "position.desc", limit: "1" });
+  const tail = await supabaseRequest<Array<{ position: number }>>("shopping_list_items?" + positionParams.toString());
+  const position = (tail[0]?.position ?? -1) + 1;
+  const rows = await supabaseRequest<ShoppingListItemRecord[]>("shopping_list_items", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({
+      shopping_list_id: input.listId,
+      name: input.name,
+      normalized_name: normalizeShoppingItemName(input.name),
+      quantity: input.quantity ?? null,
+      unit: input.unit ?? null,
+      notes: input.notes ?? null,
+      position,
+    }),
+  });
+  const item = rows[0] ?? null;
+  if (item) await touchShoppingList(input.listId);
+  return item;
+}
+export async function deleteShoppingItemForUser(input: {
+  listId: string; itemId: string; userId: string;
+}): Promise<boolean> {
+  const listParams = new URLSearchParams({ select: "id", id: "eq." + input.listId, user_id: "eq." + input.userId, limit: "1" });
+  const lists = await supabaseRequest<Array<{ id: string }>>("shopping_lists?" + listParams.toString());
+  if (!lists[0]) return false;
+  const params = new URLSearchParams({ id: "eq." + input.itemId, shopping_list_id: "eq." + input.listId, select: "id" });
+  const rows = await supabaseRequest<Array<{ id: string }>>("shopping_list_items?" + params.toString(), {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  });
+  if (rows.length === 0) return false;
+  await touchShoppingList(input.listId);
+  return true;
+}
 type RecipeListRow = DbRecipeRow & {
   ingredients: { count: number }[] | null;
   preparation_steps: { count: number }[] | null;
@@ -277,7 +328,7 @@ type RecipeDetailRow = DbRecipeRow & {
   recipe_utensils: DbUtensilRow[] | null;
 };
 
-const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,cover_image_url,preparation_flowchart_url,created_at,updated_at";
+const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_platform,source_thumbnail_url,source_video_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,cover_image_url,preparation_flowchart_url,created_at,updated_at";
 
 export async function listRecipesForUser(userId: string): Promise<RecipeSummary[]> {
   const params = new URLSearchParams({

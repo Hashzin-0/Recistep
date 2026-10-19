@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { recipeExtractionSchema } from "@/lib/schemas/recipe";
-import { draftFromDbRecipe, recipeSummary, type DbIngredientRow, type DbRecipeRow, type DbStepRow } from "@/lib/recipe/recipe-draft";
+import { draftFromDbRecipe, recipeSummary, videoDisplayFromDbRecipe, type DbIngredientRow, type DbRecipeRow, type DbStepRow } from "@/lib/recipe/recipe-draft";
 
 const recipe: DbRecipeRow = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -61,6 +61,19 @@ describe("draftFromDbRecipe", () => {
     const draft = draftFromDbRecipe(recipe, [ingredient({ quantity: null, quantity_text: null })], [step({})]);
     expect(draft.ingredients[0].quantity).toBeNull();
     expect(draft.ingredients[0].quantity_text).toBeNull();
+  });
+
+  it("maps step video marks and builds the video display from stored columns", () => {
+    const draft = draftFromDbRecipe(recipe, [ingredient({})], [step({ video_start_seconds: 30, video_end_seconds: 90 })]);
+    expect(draft.steps[0]).toMatchObject({ video_start_seconds: 30, video_end_seconds: 90 });
+
+    const display = videoDisplayFromDbRecipe({
+      ...recipe,
+      source_url: "https://youtu.be/dQw4w9WgXcQ",
+      source_platform: "youtube",
+    });
+    expect(display?.embed_url).toContain("/embed/dQw4w9WgXcQ");
+    expect(videoDisplayFromDbRecipe(recipe)).toBeNull();
   });
 });
 

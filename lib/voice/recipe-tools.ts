@@ -32,6 +32,8 @@ export interface KitchenStep {
   duration_seconds: number | null;
   temperature_value: number | null;
   temperature_unit: "C" | "F" | null;
+  video_start_seconds?: number | null;
+  video_end_seconds?: number | null;
 }
 
 export interface KitchenSession {
