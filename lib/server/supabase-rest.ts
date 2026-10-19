@@ -1,5 +1,5 @@
 import "server-only";
-import { recipeSummary, type DbIngredientRow, type DbRecipeRow, type DbStepRow, type RecipeDetail, type RecipeSummary } from "@/lib/recipe/recipe-draft";
+import { recipeSummary, type DbIngredientRow, type DbRecipeRow, type DbStepRow, type DbUtensilRow, type RecipeDetail, type RecipeSummary } from "@/lib/recipe/recipe-draft";
 
 export type ImportStatus =
   | "queued"
@@ -274,6 +274,7 @@ type RecipeListRow = DbRecipeRow & {
 type RecipeDetailRow = DbRecipeRow & {
   ingredients: DbIngredientRow[] | null;
   preparation_steps: DbStepRow[] | null;
+  recipe_utensils: DbUtensilRow[] | null;
 };
 
 const RECIPE_COLUMNS = "id,user_id,source_import_id,title,description,source_url,source_language,servings,prep_seconds,cook_seconds,total_seconds,uncertainties,warnings,is_confirmed,cover_image_url,preparation_flowchart_url,created_at,updated_at";
@@ -290,7 +291,7 @@ export async function listRecipesForUser(userId: string): Promise<RecipeSummary[
 
 export async function getRecipeForUser(recipeId: string, userId: string): Promise<RecipeDetail | null> {
   const params = new URLSearchParams({
-    select: `${RECIPE_COLUMNS},ingredients(*),preparation_steps(*)`,
+    select: `${RECIPE_COLUMNS},ingredients(*),preparation_steps(*),recipe_utensils(*)`,
     id: `eq.${recipeId}`,
     user_id: `eq.${userId}`,
     limit: "1",
@@ -300,8 +301,8 @@ export async function getRecipeForUser(recipeId: string, userId: string): Promis
   const rows = await supabaseRequest<RecipeDetailRow[]>("recipes?" + params.toString());
   const row = rows[0];
   if (!row) return null;
-  const { ingredients, preparation_steps, ...recipe } = row;
-  return { recipe, ingredients: ingredients ?? [], steps: preparation_steps ?? [] };
+  const { ingredients, preparation_steps, recipe_utensils, ...recipe } = row;
+  return { recipe, ingredients: ingredients ?? [], steps: preparation_steps ?? [], utensils: recipe_utensils ?? [] };
 }
 
 export async function createManualRecipe(
