@@ -4,6 +4,7 @@ import {
   type RecipeExtraction,
   type IngredientExtraction,
   type PreparationStepExtraction,
+  utensilExtractionSchema,
 } from "@/lib/schemas/recipe";
 import { parsePartialJson } from "@/lib/providers/ai/partial-json";
 import { collectCoverageWarnings, enrichRecipeDraft } from "@/lib/recipe/enrich";
@@ -366,6 +367,13 @@ export function normalizePartialRecipe(decoded: unknown): RecipeExtraction | nul
     description: stringOrNull(decoded.description)?.trim() || null,
     source_language: stringOrNull(decoded.source_language)?.trim() || null,
     servings: numberOrNull(decoded.servings),
+    cover_image_url: null,
+    utensils: Array.isArray(decoded.utensils)
+      ? decoded.utensils.flatMap((item) => {
+          const parsed = utensilExtractionSchema.safeParse(item);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
     timings: {
       prep_seconds: intOrNull(rawTimings.prep_seconds),
       cook_seconds: intOrNull(rawTimings.cook_seconds),
