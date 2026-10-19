@@ -2,7 +2,7 @@
 
 import { PortionScaler } from "@/components/recipe-planner";
 import { emptyIngredient, emptyStep } from "@/lib/recipe/recipe-draft";
-import type { RecipeExtraction, IngredientExtraction, PreparationStepExtraction } from "@/lib/schemas/recipe";
+import type { RecipeExtraction, IngredientExtraction, PreparationStepExtraction, UtensilExtraction } from "@/lib/schemas/recipe";
 
 export function RecipeEditor({ value, onChange, idPrefix = "recipe", allowStructureEdit = false }: {
   value: RecipeExtraction;
@@ -15,6 +15,18 @@ export function RecipeEditor({ value, onChange, idPrefix = "recipe", allowStruct
       ...value,
       ingredients: value.ingredients.map((item, i) => (i === index ? { ...item, ...patch } : item)),
     });
+  }
+
+  function setUtensil(index: number, patch: Partial<UtensilExtraction>) {
+    onChange({ ...value, utensils: value.utensils.map((item, i) => i === index ? { ...item, ...patch } : item) });
+  }
+
+  function addUtensil() {
+    onChange({ ...value, utensils: [...value.utensils, { name: "", purpose: null, quantity: null, source_evidence: null, confidence: 0.7 }] });
+  }
+
+  function removeUtensil(index: number) {
+    onChange({ ...value, utensils: value.utensils.filter((_, i) => i !== index) });
   }
 
   function setStep(position: number, patch: Partial<PreparationStepExtraction>) {
@@ -97,14 +109,6 @@ export function RecipeEditor({ value, onChange, idPrefix = "recipe", allowStruct
                 <button className="link-button danger" type="button" onClick={() => removeIngredient(index)}>Remover</button>
               )}
             </div>
-            <label htmlFor={`${idPrefix}-ingredient-section-${index}`}>Camada / preparação</label>
-            <input
-              id={`${idPrefix}-ingredient-section-${index}`}
-              value={ingredient.section ?? "Ingredientes"}
-              maxLength={100}
-              placeholder="Ex.: Massa, Calda, Banho-maria"
-              onChange={(event) => setIngredient(index, { section: event.target.value || "Ingredientes" })}
-            />
             <input
               id={`${idPrefix}-ingredient-name-${index}`}
               value={ingredient.name}
@@ -152,6 +156,49 @@ export function RecipeEditor({ value, onChange, idPrefix = "recipe", allowStruct
             />
           </div>
         ))}
+      </div>
+
+      <div className="editor-section-title">
+        <strong>Utensílios e equipamentos</strong>
+        {allowStructureEdit && (
+          <button className="auth-secondary-button" type="button" onClick={addUtensil}>Adicionar utensílio</button>
+        )}
+      </div>
+      <p className="field-hint">Utensílios identificados na receita. Revise a lista e remova os que não serão necessários.</p>
+      <div className="review-list">
+        {(value.utensils ?? []).map((utensil, index) => (
+          <div className="review-item" key={index}>
+            <div className="editor-item-heading">
+              <label htmlFor={`${idPrefix}-utensil-name-${index}`}>Utensílio {index + 1}</label>
+              {allowStructureEdit && <button className="link-button danger" type="button" onClick={() => removeUtensil(index)}>Remover</button>}
+            </div>
+            <input
+              id={`${idPrefix}-utensil-name-${index}`}
+              value={utensil.name}
+              maxLength={160}
+              placeholder="Ex.: tigela, fouet, assadeira"
+              onChange={(event) => setUtensil(index, { name: event.target.value })}
+              required
+            />
+            <label htmlFor={`${idPrefix}-utensil-purpose-${index}`}>Uso na receita</label>
+            <input
+              id={`${idPrefix}-utensil-purpose-${index}`}
+              value={utensil.purpose ?? ""}
+              maxLength={500}
+              placeholder="Ex.: misturar os ingredientes secos"
+              onChange={(event) => setUtensil(index, { purpose: event.target.value || null })}
+            />
+            <label htmlFor={`${idPrefix}-utensil-quantity-${index}`}>Quantidade (se conhecida)</label>
+            <input
+              id={`${idPrefix}-utensil-quantity-${index}`}
+              value={utensil.quantity ?? ""}
+              maxLength={80}
+              placeholder="Ex.: 2 tigelas"
+              onChange={(event) => setUtensil(index, { quantity: event.target.value || null })}
+            />
+          </div>
+        ))}
+        {(value.utensils ?? []).length === 0 && <p className="field-hint">Nenhum utensílio identificado. Adicione os utensílios necessários manualmente.</p>}
       </div>
 
       <div className="editor-section-title">

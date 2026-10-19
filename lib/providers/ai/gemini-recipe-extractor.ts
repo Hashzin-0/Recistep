@@ -4,6 +4,7 @@ import {
   type RecipeExtraction,
   type IngredientExtraction,
   type PreparationStepExtraction,
+  utensilExtractionSchema,
 } from "@/lib/schemas/recipe";
 import { parsePartialJson } from "@/lib/providers/ai/partial-json";
 import { collectCoverageWarnings, enrichRecipeDraft } from "@/lib/recipe/enrich";
@@ -30,6 +31,7 @@ const recipeResponseSchema = {
   additionalProperties: false,
   properties: {
     title: { type: "string" },
+    cover_image_url: { type: ["string", "null"] },
     description: { type: ["string", "null"] },
     source_language: { type: ["string", "null"] },
     servings: { type: ["number", "null"] },
@@ -42,6 +44,21 @@ const recipeResponseSchema = {
         total_seconds: { type: ["integer", "null"] },
       },
       required: ["prep_seconds", "cook_seconds", "total_seconds"],
+    },
+    utensils: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          purpose: { type: ["string", "null"] },
+          quantity: { type: ["string", "null"] },
+          source_evidence: { type: ["string", "null"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+        required: ["name", "purpose", "quantity", "source_evidence", "confidence"],
+      },
     },
     ingredients: {
       type: "array",
@@ -95,8 +112,8 @@ const recipeResponseSchema = {
     warnings: { type: "array", items: { type: "string" } },
   },
   required: [
-    "title", "description", "source_language", "servings", "timings",
-    "ingredients", "steps", "uncertainties", "warnings",
+    "title", "description", "source_language", "servings", "cover_image_url", "timings",
+    "ingredients", "utensils", "steps", "uncertainties", "warnings",
   ],
 } as const;
 
@@ -129,6 +146,15 @@ const systemInstruction = [
   "- 'a gosto', 'q.b.', 'a vontade', 'quanto baste' => quantity, quantity_min, quantity_max = null; coloque a frase em notes.",
   "- unit é a unidade EXATA escrita (ex.: 'colher de sopa', 'xícara', 'dente', 'g'). unit_normalized guarda a forma canônica quando evidente (ex.: 'colher de sopa' -> 'colher de sopa', 'g' -> 'g').",
   "- Se a fonte não der quantidade, deixe-a null. NUNCA invente quantidade, unidade ou porção.",
+  "",
+  "REGRAS DE COBERTURA DE UTENSÍLIOS (obrigatórias):",
+  "- Extraia TODOS os utensílios e equipamentos necessários mencionados explicitamente nas etapas ou no conteúdo da receita (ex.: tigela, fouet, espátula, faca, tábua, panela, frigideira, assadeira, liquidificador, peneira, balança, termômetro).",
+  "- Inclua também utensílios implicitamente necessários somente quando forem inequivocamente exigidos pela ação descrita; não liste louças para servir nem equipamentos opcionais sem evidência.",
+  "- Deduplicate utensílios pelo nome, mantendo purpose com a finalidade principal, quantity se explícita, source_evidence literal e confidence fundamentada.",
+  "- Se nenhum utensílio puder ser identificado com segurança, retorne array vazio; nunca invente utensílios específicos.",
+  "",
+  "CAPA DA RECEITA:",
+  "- cover_image_url deve ser null; a capa é fornecida/editada pelo usuário na interface, não invente URLs.",
   "",
   "REGRAS DE COBERTURA DE TEMPOS POR ETAPA (obrigatórias):",
   "- Extraia TODAS as etapas, uma por posição crescente. Nunca omita uma etapa.",
@@ -341,6 +367,13 @@ export function normalizePartialRecipe(decoded: unknown): RecipeExtraction | nul
     description: stringOrNull(decoded.description)?.trim() || null,
     source_language: stringOrNull(decoded.source_language)?.trim() || null,
     servings: numberOrNull(decoded.servings),
+    cover_image_url: null,
+    utensils: Array.isArray(decoded.utensils)
+      ? decoded.utensils.flatMap((item) => {
+          const parsed = utensilExtractionSchema.safeParse(item);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
     timings: {
       prep_seconds: intOrNull(rawTimings.prep_seconds),
       cook_seconds: intOrNull(rawTimings.cook_seconds),

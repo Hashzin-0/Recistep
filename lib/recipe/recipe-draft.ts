@@ -1,4 +1,4 @@
-import type { IngredientExtraction, PreparationStepExtraction, RecipeExtraction } from "@/lib/schemas/recipe";
+import type { IngredientExtraction, PreparationStepExtraction, RecipeExtraction, UtensilExtraction } from "@/lib/schemas/recipe";
 
 export function emptyIngredient(): IngredientExtraction {
   return {
@@ -37,6 +37,8 @@ export function createEmptyRecipe(): RecipeExtraction {
     description: null,
     source_language: null,
     servings: null,
+    cover_image_url: null,
+    utensils: [],
     timings: { prep_seconds: null, cook_seconds: null, total_seconds: null },
     ingredients: [emptyIngredient()],
     steps: [emptyStep(0)],
@@ -83,6 +85,16 @@ export type DbIngredientRow = {
   section?: string;
 };
 
+export type DbUtensilRow = {
+  id: string;
+  name: string;
+  purpose: string | null;
+  quantity: string | null;
+  source_evidence: string | null;
+  confidence: number;
+  position: number;
+};
+
 export type DbStepRow = {
   id: string;
   position: number;
@@ -116,6 +128,7 @@ export type RecipeSummary = {
 export type RecipeDetail = {
   recipe: DbRecipeRow;
   ingredients: DbIngredientRow[];
+  utensils: DbUtensilRow[];
   steps: DbStepRow[];
 };
 
@@ -124,7 +137,7 @@ function stringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredientRow[], steps: DbStepRow[]): RecipeExtraction {
+export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredientRow[], steps: DbStepRow[], utensils: DbUtensilRow[] = []): RecipeExtraction {
   const orderedIngredients: IngredientExtraction[] = [...ingredients]
     .sort((a, b) => a.position - b.position)
     .map((ingredient) => ({
@@ -161,12 +174,14 @@ export function draftFromDbRecipe(recipe: DbRecipeRow, ingredients: DbIngredient
     description: recipe.description,
     source_language: recipe.source_language,
     servings: recipe.servings,
+    cover_image_url: recipe.cover_image_url ?? null,
     timings: {
       prep_seconds: recipe.prep_seconds,
       cook_seconds: recipe.cook_seconds,
       total_seconds: recipe.total_seconds,
     },
     ingredients: orderedIngredients,
+    utensils: [...utensils].sort((a, b) => a.position - b.position).map((item): UtensilExtraction => ({ name: item.name, purpose: item.purpose, quantity: item.quantity, source_evidence: item.source_evidence, confidence: item.confidence })),
     steps: orderedSteps,
     uncertainties: stringArray(recipe.uncertainties),
     warnings: stringArray(recipe.warnings),
@@ -191,7 +206,7 @@ export function recipeApiData(detail: RecipeDetail): RecipeApiData {
     updated_at: detail.recipe.updated_at,
     cover_image_url: detail.recipe.cover_image_url ?? null,
     preparation_flowchart_url: detail.recipe.preparation_flowchart_url ?? null,
-    recipe: draftFromDbRecipe(detail.recipe, detail.ingredients, detail.steps),
+    recipe: draftFromDbRecipe(detail.recipe, detail.ingredients, detail.steps, detail.utensils),
   };
 }
 

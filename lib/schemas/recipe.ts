@@ -3,11 +3,6 @@ import { z } from "zod";
 const nullableText = z.string().trim().max(2_000).nullable();
 const confidenceSchema = z.number().min(0).max(1);
 
-// Ingredientes: qualquer forma de medida é preservada. quantity é o valor
-// representativo mais provável; quantity_text guarda o texto literal; min/max
-// representam intervalos ("2 a 3 colheres"); unit é a unidade original e
-// unit_normalized a forma canônica quando conhecida. Valores desconhecidos
-// permanecem null: nunca inventamos quantidade.
 export const ingredientExtractionSchema = z.object({
   name: z.string().trim().min(1).max(200),
   section: z.string().trim().min(1).max(100).optional(),
@@ -21,22 +16,19 @@ export const ingredientExtractionSchema = z.object({
   source_evidence: z.string().trim().max(1_000).nullable(),
   confidence: confidenceSchema,
 }).strict().superRefine((ingredient, context) => {
-  if (
-    ingredient.quantity_min != null &&
-    ingredient.quantity_max != null &&
-    ingredient.quantity_min > ingredient.quantity_max
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["quantity_min"],
-      message: "O limite inferior da quantidade não pode ser maior que o superior.",
-    });
+  if (ingredient.quantity_min != null && ingredient.quantity_max != null && ingredient.quantity_min > ingredient.quantity_max) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["quantity_min"], message: "O limite inferior da quantidade não pode ser maior que o superior." });
   }
 });
 
-// Etapas: duration_seconds é o valor representativo; duration_text preserva o
-// texto literal ("10 a 15 minutos"); min/max cobrem o intervalo. Quando a fonte
-// não informa tempo, todos permanecem null.
+export const utensilExtractionSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  purpose: z.string().trim().max(500).nullable().default(null),
+  quantity: z.string().trim().max(80).nullable().default(null),
+  source_evidence: z.string().trim().max(1_000).nullable().default(null),
+  confidence: confidenceSchema.default(0.7),
+}).strict();
+
 export const preparationStepExtractionSchema = z.object({
   position: z.number().int().min(0).max(200),
   instruction: z.string().trim().min(1).max(4_000),
@@ -49,16 +41,8 @@ export const preparationStepExtractionSchema = z.object({
   source_evidence: z.string().trim().max(1_000).nullable(),
   confidence: confidenceSchema,
 }).strict().superRefine((step, context) => {
-  if (
-    step.duration_min_seconds != null &&
-    step.duration_max_seconds != null &&
-    step.duration_min_seconds > step.duration_max_seconds
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["duration_min_seconds"],
-      message: "A duração mínima não pode ser maior que a máxima.",
-    });
+  if (step.duration_min_seconds != null && step.duration_max_seconds != null && step.duration_min_seconds > step.duration_max_seconds) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration_min_seconds"], message: "A duração mínima não pode ser maior que a máxima." });
   }
 });
 
@@ -67,42 +51,29 @@ export const recipeExtractionSchema = z.object({
   description: z.string().trim().max(2_000).nullable(),
   source_language: z.string().trim().min(2).max(35).nullable(),
   servings: z.number().positive().max(500).nullable(),
+  cover_image_url: z.string().url().max(2_000).nullable().default(null),
   timings: z.object({
     prep_seconds: z.number().int().min(0).max(604_800).nullable(),
     cook_seconds: z.number().int().min(0).max(604_800).nullable(),
     total_seconds: z.number().int().min(0).max(604_800).nullable(),
   }).strict(),
   ingredients: z.array(ingredientExtractionSchema).min(1).max(200),
+  utensils: z.array(utensilExtractionSchema).max(100).default([]),
   steps: z.array(preparationStepExtractionSchema).min(1).max(200),
   uncertainties: z.array(z.string().trim().min(1).max(500)).max(100),
   warnings: z.array(z.string().trim().min(1).max(500)).max(100),
 }).strict().superRefine((recipe, context) => {
   const positions = recipe.steps.map((step) => step.position);
   if (new Set(positions).size !== positions.length) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["steps"],
-      message: "Cada etapa precisa ter uma posição única.",
-    });
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["steps"], message: "Cada etapa precisa ter uma posição única." });
   }
-
-  if (
-    recipe.timings.prep_seconds !== null &&
-    recipe.timings.cook_seconds !== null &&
-    recipe.timings.total_seconds !== null &&
-    recipe.timings.total_seconds < Math.max(
-      recipe.timings.prep_seconds,
-      recipe.timings.cook_seconds,
-    )
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["timings", "total_seconds"],
-      message: "O tempo total não pode ser menor que o tempo de preparo ou cocção.",
-    });
+  if (recipe.timings.prep_seconds !== null && recipe.timings.cook_seconds !== null && recipe.timings.total_seconds !== null &&
+      recipe.timings.total_seconds < Math.max(recipe.timings.prep_seconds, recipe.timings.cook_seconds)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["timings", "total_seconds"], message: "O tempo total não pode ser menor que o tempo de preparo ou cocção." });
   }
 });
 
 export type RecipeExtraction = z.infer<typeof recipeExtractionSchema>;
 export type IngredientExtraction = z.infer<typeof ingredientExtractionSchema>;
+export type UtensilExtraction = z.infer<typeof utensilExtractionSchema>;
 export type PreparationStepExtraction = z.infer<typeof preparationStepExtractionSchema>;

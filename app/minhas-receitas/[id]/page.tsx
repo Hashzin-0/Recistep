@@ -152,6 +152,16 @@ export default function ReceitaDetalhePage() {
                 <p className="field-hint">{ratingAverage === null ? "Ainda sem avaliações" : "Média " + ratingAverage.toFixed(1) + " de 5 · " + ratingCount + " avaliação(ões)"}</p>
               </section>
               {data.preparation_flowchart_url && <section className="recipe-flowchart"><strong>Fluxograma do preparo</strong><img src={data.preparation_flowchart_url} alt={"Fluxograma das etapas de " + data.recipe.title} /></section>}
+              {(data.recipe.utensils ?? []).length > 0 && (
+                <section className="recipe-utensils-list">
+                  <strong>Utensílios e equipamentos</strong>
+                  <ul className="recipe-detail-list">
+                    {data.recipe.utensils.map((utensil, index) => (
+                      <li key={index}><strong>{utensil.name}</strong>{utensil.quantity ? " · " + utensil.quantity : ""}{utensil.purpose ? " — " + utensil.purpose : ""}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               <div className="recipe-detail-columns">
                 <div>
                   <strong>Ingredientes por camada</strong>
