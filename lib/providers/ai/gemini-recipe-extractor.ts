@@ -155,7 +155,7 @@ const systemInstruction = [
   "CAPA DA RECEITA:",
   "- cover_image_url deve ser null; a capa é fornecida/editada pelo usuário na interface, não invente URLs.",
   "",
-  "REGRAS DE COBERTURA DE TEMPOS POR ETAPA (obrigatórias):
+  "REGRAS DE COBERTURA DE TEMPOS POR ETAPA (obrigatórias):",
   "- Extraia TODAS as etapas, uma por posição crescente. Nunca omita uma etapa.",
   "- Se a etapa contiver QUALQUER expressão de tempo ('30 minutos', '1h30', '1 hora e meia', '10 a 15 minutos', 'meia hora'), copie-a literalmente em duration_text e converta para segundos em duration_seconds.",
   "- '10 a 15 minutos' => duration_min_seconds=600, duration_max_seconds=900, duration_seconds=900.",
