@@ -44,7 +44,7 @@ const ACTIVE_IMPORT = {
 function request(url = "http://localhost/api/v1/imports") {
   return new Request(url, {
     method: "GET",
-    headers: { Authorization: "Bearer test-token" },
+    headers: { Authorization: "Bearer test-access-token-12345" },
   });
 }
 
