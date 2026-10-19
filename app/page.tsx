@@ -969,7 +969,7 @@ export default function HomePage() {
                   <h3 id="import-status-heading">{statusLabel(importRecord.status)}</h3>
                 </div>
                 <button className="auth-secondary-button" type="button" onClick={refreshImportStatus}>
-                  Atualizar
+                  Cancelar
                 </button>
               </div>
               {importRecord.source_metadata?.title && (
