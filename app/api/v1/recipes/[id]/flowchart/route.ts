@@ -3,9 +3,12 @@ import { authenticateRequest, isUuid } from "@/lib/server/route-auth";
 import { getRecipeForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
 import { draftFromDbRecipe } from "@/lib/recipe/recipe-draft";
 import { checkUserRateLimit } from "@/lib/server/rate-limit";
+import { resolveGeminiModels } from "@/lib/providers/ai/gemini-models";
 
 export const runtime = "nodejs";
-const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 
 function sanitizeSvg(raw: string): string | null {
   const svg = raw.replace(/^```(?:svg|xml)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
@@ -31,6 +34,93 @@ function sanitizeSvg(raw: string): string | null {
   return sanitized;
 }
 
+type SvgGeneration = { svg: string; model: string };
+
+async function generateSvgWithGemini(prompt: string): Promise<SvgGeneration> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) throw new Error("GEMINI_NOT_CONFIGURED");
+
+  let lastError: unknown;
+  for (const model of resolveGeminiModels()) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 12000 } }),
+        signal: AbortSignal.timeout(90000),
+      });
+      const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } } | null;
+      if (!response.ok) {
+        console.error(`[recipe-flowchart] Gemini rejected request (model=${model})`, response.status, payload?.error?.message?.slice(0, 300));
+        throw new Error(`GEMINI_FLOWCHART_FAILED:${response.status}`);
+      }
+      const svgText = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
+      const svg = sanitizeSvg(svgText);
+      if (!svg) throw new Error("GEMINI_RETURNED_INVALID_SVG");
+      console.info(`[ai-provider] gemini served flowchart (model=${model})`);
+      return { svg, model };
+    } catch (error) {
+      lastError = error;
+      console.warn(`[ai-provider] gemini flowchart failed (model=${model}): ${error instanceof Error ? error.message : "unknown"}`);
+    }
+  }
+  throw lastError;
+}
+
+async function generateSvgWithOpenRouter(prompt: string): Promise<SvgGeneration> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENROUTER_NOT_CONFIGURED");
+  const configuredModel = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL;
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "X-Title": "Recistep",
+    },
+    body: JSON.stringify({
+      model: configuredModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+      max_tokens: 12000,
+    }),
+    signal: AbortSignal.timeout(90000),
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null) as {
+    model?: string;
+    choices?: Array<{ message?: { content?: unknown } }>;
+    error?: { message?: string };
+  } | null;
+  if (!response.ok) {
+    console.error("[recipe-flowchart] OpenRouter rejected request", response.status, payload?.error?.message?.slice(0, 300));
+    throw new Error("OPENROUTER_FLOWCHART_FAILED");
+  }
+  const content = payload?.choices?.[0]?.message?.content;
+  const svg = sanitizeSvg(typeof content === "string" ? content : "");
+  if (!svg) throw new Error("OPENROUTER_RETURNED_INVALID_SVG");
+  const usedModel = payload?.model || configuredModel;
+  console.info(`[ai-provider] openrouter served flowchart (model=${usedModel})`);
+  return { svg, model: usedModel };
+}
+
+async function generateSvg(prompt: string): Promise<SvgGeneration | null> {
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY?.trim());
+  const openRouterConfigured = Boolean(process.env.OPENROUTER_API_KEY?.trim());
+  if (!geminiConfigured && !openRouterConfigured) return null;
+
+  if (geminiConfigured) {
+    try {
+      return await generateSvgWithGemini(prompt);
+    } catch (error) {
+      if (!openRouterConfigured) throw error;
+      console.warn("[ai-provider] all Gemini models failed; falling back to OpenRouter for the flowchart");
+    }
+  }
+  return generateSvgWithOpenRouter(prompt);
+}
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await authenticateRequest(request);
   if (!auth.ok) return auth.response;
@@ -42,8 +132,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!recipe) return NextResponse.json({ error: { code: "RECIPE_NOT_FOUND" } }, { status: 404 });
   const config = getSupabaseConfig();
   if (!config) return NextResponse.json({ error: { code: "SUPABASE_NOT_CONFIGURED" } }, { status: 503 });
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return NextResponse.json({ error: { code: "GEMINI_NOT_CONFIGURED", message: "Configure GEMINI_API_KEY no servidor." } }, { status: 503 });
 
   const recipeDraft = draftFromDbRecipe(recipe.recipe, recipe.ingredients, recipe.steps);
   const title = recipeDraft.title.slice(0, 200);
@@ -59,20 +147,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       `Receita: ${title}`,
       ...steps.map((step, index) => `${index + 1}. ${step}`),
     ].join("\n");
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 12000 } }),
-      signal: AbortSignal.timeout(90000),
-    });
-    const payload = await response.json().catch(() => null) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } } | null;
-    if (!response.ok) {
-      console.error("[recipe-flowchart] Gemini rejected request", response.status, payload?.error?.message?.slice(0, 300));
-      return NextResponse.json({ error: { code: "GEMINI_FLOWCHART_FAILED", message: "O Gemini não conseguiu gerar o fluxograma." } }, { status: 502 });
+
+    const generated = await generateSvg(prompt);
+    if (!generated) {
+      return NextResponse.json({ error: { code: "AI_NOT_CONFIGURED", message: "Configure GEMINI_API_KEY ou OPENROUTER_API_KEY no servidor." } }, { status: 503 });
     }
-    const svgText = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
-    const svg = sanitizeSvg(svgText);
-    if (!svg) return NextResponse.json({ error: { code: "GEMINI_RETURNED_INVALID_SVG", message: "O Gemini não retornou um SVG válido e seguro. Tente novamente." } }, { status: 502 });
+
+    const { svg, model } = generated;
     const mime = "image/svg+xml";
     const ext = "svg";
     const path = `${auth.user.id}/${id}/flowchart-${crypto.randomUUID()}.${ext}`;
@@ -93,7 +174,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       signal: AbortSignal.timeout(8000),
     });
     if (!update.ok) return NextResponse.json({ error: { code: "FLOWCHART_SAVE_FAILED" } }, { status: 502 });
-    return NextResponse.json({ preparation_flowchart_url: url, model: MODEL, format: "svg" });
+    return NextResponse.json({ preparation_flowchart_url: url, model, format: "svg" });
   } catch {
     return NextResponse.json({ error: { code: "FLOWCHART_GENERATION_FAILED", message: "Não foi possível gerar o fluxograma agora." } }, { status: 503 });
   }

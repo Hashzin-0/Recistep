@@ -44,7 +44,8 @@ CI (`.github/workflows/ci.yml`) runs, in order: `npm test` -> `npm run typecheck
 
 ## Environment and services
 
-- Copy `.env.example` to `.env.local`. Keep `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, and Inngest keys server-only; only `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public.
+- Copy `.env.example` to `.env.local`. Keep `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and Inngest keys server-only; only `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public.
+- AI extraction is Gemini-first: `GEMINI_MODELS` (comma-separated) is tried in order, then `openrouter/free` when `OPENROUTER_API_KEY` is set. Fallback is explicit and logged (`[ai-provider] ...`); never silent.
 - Local Inngest: run the Dev Server and set `INNGEST_DEV=1`.
 - Supabase migrations in `supabase/migrations/` are **manual and version-ordered**; the project is not provisioned here. New migrations need a `YYYYMMDDHHMMSS_name.sql` filename. Several features return 503 until services/env are configured, so do not claim the app runs end-to-end.
 - New rate-limited routes should use `checkUserRateLimit` (`lib/server/rate-limit.ts`), backed by the `consume_api_rate_limit` RPC.

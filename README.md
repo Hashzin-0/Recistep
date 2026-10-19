@@ -128,7 +128,17 @@ Código: `lib/voice/` (configuração, sessão, áudio, ferramentas, prompts e g
 
 ## Configuração de ambiente
 
-Copie `.env.example` para `.env.local` e configure valores reais. As variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` são públicas e usadas apenas pelo cliente de Auth; mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` e chaves Inngest exclusivamente no servidor. Configure também as opções de confirmação de e-mail e URLs de redirecionamento no Supabase Auth. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
+Copie `.env.example` para `.env.local` e configure valores reais. As variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` são públicas e usadas apenas pelo cliente de Auth; mantenha `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` e chaves Inngest exclusivamente no servidor. Configure também as opções de confirmação de e-mail e URLs de redirecionamento no Supabase Auth. Em desenvolvimento local, use o Inngest Dev Server e `INNGEST_DEV=1`.
+
+## Fallback de modelos (Gemini → OpenRouter)
+
+A extração de receitas e a geração de fluxograma tentam primeiro os modelos Gemini configurados e, somente quando **todos** falham, recorrem ao OpenRouter. Não há fallback silencioso: cada tentativa é registrada (`[ai-provider] ...`) com provedor e modelo, e o fallback é explicitamente habilitado por ambiente.
+
+- `GEMINI_MODELS` (opcional): lista ordenada de modelos Gemini separada por vírgulas. Se definida, cada modelo é tentado em sequência; se ausente, usa-se apenas `GEMINI_MODEL` (ou o padrão embutido).
+- `OPENROUTER_API_KEY` (opcional, server-only): habilita o fallback. Sem ela, o último erro do Gemini é propagado como antes.
+- `OPENROUTER_MODEL` (opcional): padrão `openrouter/free`, o roteador gratuito do OpenRouter que escolhe automaticamente um modelo free compatível com as modalidades de entrada do pedido (texto/imagem/vídeo/áudio) e com saída estruturada. Não é feita consulta extra à API de modelos: o próprio roteador aplica o filtro de capacidade.
+
+Para mídia de plataformas (TikTok/Instagram) já enviada ao Gemini Files API, o fallback baixa novamente o vídeo (mesma allowlist de host e limite de tamanho) e o envia inline, porque uma URI do Gemini Files não pode ser resolvida por outro provedor. URLs do YouTube vão como `video_url`.
 
 Para o assistente de voz, além de `GEMINI_API_KEY`, são opcionais: `GEMINI_LIVE_MODEL` (padrão `gemini-3.8-live-extended-thinking`), `GEMINI_LIVE_VOICE` (padrão `Puck`) e `GEMINI_LIVE_TOKEN_TTL_MINUTES` (padrão 30, limitado a 1 a 30).
 

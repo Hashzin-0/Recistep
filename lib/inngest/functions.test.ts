@@ -40,7 +40,9 @@ vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => {
 
   return {
     GeminiExtractionError,
-    streamRecipeFromMediaUrl: vi.fn(),
+    prepareMediaForGemini: vi.fn(),
+    deletePreparedMedia: vi.fn().mockResolvedValue(undefined),
+    streamRecipeFromPreparedMedia: vi.fn(),
     streamRecipeFromTranscript: vi.fn(),
     extractRecipeFromMediaUrl: vi.fn(),
     extractRecipeFromTranscript: vi.fn(),
@@ -50,7 +52,12 @@ vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => {
 import { processImportRequested } from "./functions";
 import { getSourceImport, updateSourceImport } from "@/lib/server/supabase-rest";
 import { getSourceConnector } from "@/lib/providers/sources/registry";
-import { streamRecipeFromMediaUrl, streamRecipeFromTranscript } from "@/lib/providers/ai/gemini-recipe-extractor";
+import {
+  prepareMediaForGemini,
+  deletePreparedMedia,
+  streamRecipeFromPreparedMedia,
+  streamRecipeFromTranscript,
+} from "@/lib/providers/ai/gemini-recipe-extractor";
 import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
 import type { SourceConnector, ResolvedSource } from "@/lib/providers/sources/source-connector";
 
@@ -111,8 +118,16 @@ function stubConnector(resolve: () => Promise<ResolvedSource>): SourceConnector 
   return connector;
 }
 
+const PREPARED_MEDIA = {
+  kind: "file" as const,
+  fileUri: "https://generativelanguage.googleapis.com/v1beta/files/abc",
+  fileName: "files/abc",
+  mimeType: "video/mp4",
+  sourceUrl: "https://v16-sign.tiktokcdn.com/video/play/abc.mp4",
+};
+
 function stubStream(draft: unknown) {
-  vi.mocked(streamRecipeFromMediaUrl).mockImplementation(async function* () {
+  vi.mocked(streamRecipeFromPreparedMedia).mockImplementation(async function* () {
     yield draft as never;
   });
 }
@@ -130,7 +145,11 @@ function persistedPatches(): Array<Record<string, unknown>> {
 beforeEach(() => {
   vi.mocked(getSourceImport).mockResolvedValue(sourceImport() as never);
   vi.mocked(updateSourceImport).mockClear();
-  vi.mocked(streamRecipeFromMediaUrl).mockReset();
+  vi.mocked(prepareMediaForGemini).mockReset();
+  vi.mocked(prepareMediaForGemini).mockResolvedValue(PREPARED_MEDIA);
+  vi.mocked(deletePreparedMedia).mockReset();
+  vi.mocked(deletePreparedMedia).mockResolvedValue(undefined);
+  vi.mocked(streamRecipeFromPreparedMedia).mockReset();
   vi.mocked(streamRecipeFromTranscript).mockReset();
   vi.mocked(fetchPublicSubtitlesText).mockReset();
 });
@@ -151,16 +170,40 @@ describe("processImportRequested", () => {
     });
 
     expect(result).toMatchObject({ id: IMPORT_ID, status: "review_required" });
-    expect(streamRecipeFromMediaUrl).toHaveBeenCalledWith({
+    expect(prepareMediaForGemini).toHaveBeenCalledWith({
       mediaUrl: "https://v16-sign.tiktokcdn.com/video/play/abc.mp4",
       platform: "tiktok",
       mimeType: "video/mp4",
+    });
+    expect(streamRecipeFromPreparedMedia).toHaveBeenCalledWith({
+      media: PREPARED_MEDIA,
+      platform: "tiktok",
       locale: "pt-BR",
       sourceTitle: "Bolo de cenoura",
+      fallbackTranscript: undefined,
     });
+    expect(deletePreparedMedia).toHaveBeenCalledWith(PREPARED_MEDIA);
 
     const review = persistedPatches().find((patch) => patch.status === "review_required");
     expect(review).toMatchObject({ recipe_draft: draft });
+  });
+
+  it("passes the public caption as a fallback when the video cannot be processed", async () => {
+    const draft = { title: "Bolo de cenoura" };
+    const caption = "Bolo de cenoura: 3 cenouras, 4 ovos, óleo, açúcar e farinha. Bata, asse e sirva.".padEnd(90, " ");
+    stubConnector(async () => resolvedSource({
+      kind: "external_media",
+      mediaUrl: "https://v16-sign.tiktokcdn.com/video/play/abc.mp4",
+      mimeType: "video/mp4",
+      fallbackText: caption,
+    }));
+    stubStream(draft);
+
+    await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(streamRecipeFromPreparedMedia).toHaveBeenCalledWith(expect.objectContaining({
+      fallbackTranscript: caption,
+    }));
   });
 
   it("asks for an authorized transcript instead of pretending to succeed without media", async () => {
@@ -176,7 +219,7 @@ describe("processImportRequested", () => {
     });
 
     expect(result).toMatchObject({ id: IMPORT_ID, status: "source_content_required" });
-    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(streamRecipeFromPreparedMedia).not.toHaveBeenCalled();
 
     const last = persistedPatches().at(-1);
     expect(last).toMatchObject({
@@ -198,7 +241,7 @@ describe("processImportRequested", () => {
     expect(persistedPatches().some((patch) =>
       (patch.source_metadata as { title?: string } | null)?.title === "Bolo de cenoura",
     )).toBe(true);
-    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(streamRecipeFromPreparedMedia).not.toHaveBeenCalled();
   });
 
   it("reports a metadata failure as an explicit content requirement", async () => {
@@ -237,7 +280,7 @@ describe("processImportRequested", () => {
       locale: "pt-BR",
       sourceTitle: "Bolo de cenoura",
     });
-    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(streamRecipeFromPreparedMedia).not.toHaveBeenCalled();
     expect(persistedPatches().find((patch) => patch.status === "review_required")).toMatchObject({ recipe_draft: draft });
   });
 
@@ -290,7 +333,7 @@ describe("processImportRequested", () => {
 
     expect(result).toMatchObject({ id: IMPORT_ID, status: "failed" });
     expect(streamRecipeFromTranscript).not.toHaveBeenCalled();
-    expect(streamRecipeFromMediaUrl).not.toHaveBeenCalled();
+    expect(streamRecipeFromPreparedMedia).not.toHaveBeenCalled();
     expect(persistedPatches().at(-1)).toMatchObject({
       status: "failed",
       error_code: "SOURCE_NOT_ANALYZABLE",

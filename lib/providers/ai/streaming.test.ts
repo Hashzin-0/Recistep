@@ -174,3 +174,70 @@ describe("streamRecipeFromTranscript", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("streaming provider fallback", () => {
+  function geminiSse(): Response {
+    return sseResponse([
+      `data: ${JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(finalRecipe) }] } }] })}\n\n`,
+    ]);
+  }
+
+  function openRouterSse(): Response {
+    return sseResponse([
+      `data: ${JSON.stringify({ model: "free-model", choices: [{ delta: { content: JSON.stringify(finalRecipe) } }] })}\n\n`,
+      "data: [DONE]\n\n",
+    ]);
+  }
+
+  it("tries the next Gemini model before falling back", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODELS", "gemini-a,gemini-b");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    const fetchMock = vi.fn().mockImplementation(async (input: unknown) => {
+      if (String(input).includes("gemini-a")) {
+        return new Response(JSON.stringify({ error: { message: "unavailable" } }), { status: 503 });
+      }
+      return geminiSse();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const transcript = "Misture a farinha, o chocolate e os ovos. Asse por 30 minutos em forno preaquecido a 180 graus.";
+    let last = "";
+    for await (const recipe of streamRecipeFromTranscript({ transcript })) {
+      last = recipe.title;
+    }
+
+    expect(last).toBe("Bolo de chocolate");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("gemini-b");
+  });
+
+  it("falls back to OpenRouter after every Gemini model fails", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODELS", "gemini-a");
+    vi.stubEnv("OPENROUTER_API_KEY", "or-key");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    const fetchMock = vi.fn().mockImplementation(async (input: unknown) => {
+      if (String(input).includes("openrouter.ai")) return openRouterSse();
+      return new Response(JSON.stringify({ error: { message: "temporary" } }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const transcript = "Misture a farinha, o chocolate e os ovos. Asse por 30 minutos em forno preaquecido a 180 graus.";
+    let last = "";
+    for await (const recipe of streamRecipeFromTranscript({ transcript })) {
+      last = recipe.title;
+    }
+
+    expect(last).toBe("Bolo de chocolate");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toBe("https://openrouter.ai/api/v1/chat/completions");
+  });
+});
