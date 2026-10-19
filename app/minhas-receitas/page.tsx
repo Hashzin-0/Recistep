@@ -201,17 +201,14 @@ export default function MinhasReceitasPage() {
               const video = recipeVideo(recipe);
               return (
                 <article className="recipe-card recipe-card-horizontal" key={recipe.id}>
-                  <div className="recipe-card-media">
-                    {cover ? (
+                  {cover && (
+                    <div className="recipe-card-media">
                       <img className="recipe-card-cover" src={cover} alt={`Capa da receita ${recipe.title}`} loading="lazy" />
-                    ) : (
-                      <div className="recipe-card-cover recipe-card-cover-empty" aria-hidden="true" />
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="recipe-card-body">
                     <div>
                       <h3>{recipe.title}</h3>
-                      {recipe.description && <p className="recipe-card-description">{recipe.description}</p>}
                       <p className="recipe-card-meta">
                         {recipe.ingredients_count} ingredientes · {recipe.steps_count} etapas
                         {recipe.servings ? ` · ${recipe.servings} porções` : ""}

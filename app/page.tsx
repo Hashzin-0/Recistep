@@ -116,6 +116,7 @@ export default function HomePage() {
   const [streamDraft, setStreamDraft] = useState<RecipeExtraction | null>(null);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isConfirmingRecipe, setIsConfirmingRecipe] = useState(false);
+  const [isCancellingImport, setIsCancellingImport] = useState(false);
   const reviewDraftRef = useRef(reviewDraft);
   useEffect(() => { reviewDraftRef.current = reviewDraft; }, [reviewDraft]);
   const voiceControls = useVoiceAssistantControls();
@@ -645,6 +646,37 @@ export default function HomePage() {
     }
   }
 
+  async function cancelImport() {
+    if (!activeImportId) return;
+    const token = await getAccessToken();
+    if (!token) {
+      setFeedback({ kind: "error", message: "Entre novamente para cancelar esta importação." });
+      return;
+    }
+    setIsCancellingImport(true);
+    try {
+      const response = await fetch("/api/v1/imports/" + activeImportId + "/cancel", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+      });
+      const body = await response.json() as { data?: { id: string; status: string }; error?: { message?: string } };
+      if (!response.ok || !body.data) {
+        setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível cancelar a importação." });
+        return;
+      }
+      setActiveImportId(null);
+      setImportRecord(null);
+      setReviewDraft(null);
+      setStreamDraft(null);
+      setTranscript("");
+      setFeedback({ kind: "info", message: "Importação cancelada." });
+    } catch {
+      setFeedback({ kind: "error", message: "Não foi possível cancelar a importação agora." });
+    } finally {
+      setIsCancellingImport(false);
+    }
+  }
+
   async function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
@@ -968,9 +1000,15 @@ export default function HomePage() {
                   <span className="auth-label">Importação</span>
                   <h3 id="import-status-heading">{statusLabel(importRecord.status)}</h3>
                 </div>
-                <button className="auth-secondary-button" type="button" onClick={refreshImportStatus}>
-                  Cancelar
-                </button>
+                {ACTIVE_IMPORT_STATUSES.includes(importRecord.status) ? (
+                  <button className="auth-secondary-button" type="button" onClick={cancelImport} disabled={isCancellingImport}>
+                    {isCancellingImport ? "Cancelando…" : "Cancelar"}
+                  </button>
+                ) : (
+                  <button className="auth-secondary-button" type="button" onClick={refreshImportStatus}>
+                    Atualizar
+                  </button>
+                )}
               </div>
               {importRecord.source_metadata?.title && (
                 <p className="source-metadata-title">{importRecord.source_metadata.title}</p>

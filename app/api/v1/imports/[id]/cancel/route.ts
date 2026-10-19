@@ -1,0 +1,108 @@
+import { checkUserRateLimit } from "@/lib/server/rate-limit";
+import { NextResponse } from "next/server";
+import {
+  authenticateSupabaseAccessToken,
+  getSupabaseConfig,
+  getUserSourceImport,
+  updateSourceImport,
+} from "@/lib/server/supabase-rest";
+
+export const runtime = "nodejs";
+
+function bearerToken(request: Request): string | null {
+  const value = request.headers.get("authorization");
+  if (!value?.startsWith("Bearer ")) return null;
+  const token = value.slice(7).trim();
+  return token.length >= 20 && token.length <= 4096 ? token : null;
+}
+
+const CANCELLABLE_STATUSES = new Set(["queued", "processing", "source_content_required", "review_required"]);
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  if (!getSupabaseConfig()) {
+    return NextResponse.json(
+      { error: { code: "PERSISTENCE_NOT_CONFIGURED", message: "A persistência ainda não está configurada.", retryable: false } },
+      { status: 503 },
+    );
+  }
+
+  const token = bearerToken(request);
+  if (!token) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "Entre na sua conta para cancelar a importação.", retryable: false } },
+      { status: 401 },
+    );
+  }
+
+  let user: { id: string };
+  try {
+    user = await authenticateSupabaseAccessToken(token);
+  } catch {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "A sessão é inválida ou expirou.", retryable: false } },
+      { status: 401 },
+    );
+  }
+
+  try {
+    const rateLimit = await checkUserRateLimit({ userId: user.id, route: "imports:cancel", limit: 10, windowSeconds: 600 });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: { code: "RATE_LIMITED", message: "Você atingiu o limite de cancelamentos. Aguarde antes de tentar novamente.", retryable: true } },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: { code: "RATE_LIMIT_UNAVAILABLE", message: "Não foi possível verificar o limite de uso. Tente novamente em instantes.", retryable: true } },
+      { status: 503 },
+    );
+  }
+
+  const { id } = await context.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return NextResponse.json(
+      { error: { code: "INVALID_IMPORT_ID", message: "Identificador de importação inválido.", retryable: false } },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const record = await getUserSourceImport(id, user.id);
+    if (!record) {
+      return NextResponse.json(
+        { error: { code: "IMPORT_NOT_FOUND", message: "Importação não encontrada.", retryable: false } },
+        { status: 404 },
+      );
+    }
+
+    if (record.status === "cancelled") {
+      return NextResponse.json({ data: { id, status: "cancelled" } }, { status: 200 });
+    }
+
+    if (!CANCELLABLE_STATUSES.has(record.status)) {
+      return NextResponse.json(
+        { error: { code: "IMPORT_NOT_CANCELLABLE", message: "Esta importação não pode mais ser cancelada.", retryable: false } },
+        { status: 409 },
+      );
+    }
+
+    await updateSourceImport(id, {
+      status: "cancelled",
+      source_transcript: null,
+      recipe_partial: null,
+      error_code: "CANCELLED_BY_USER",
+      error_message: "Importação cancelada.",
+    });
+
+    return NextResponse.json({ data: { id, status: "cancelled" } }, { status: 200 });
+  } catch {
+    return NextResponse.json(
+      { error: { code: "PERSISTENCE_UNAVAILABLE", message: "Não foi possível cancelar a importação agora.", retryable: true } },
+      { status: 503 },
+    );
+  }
+}

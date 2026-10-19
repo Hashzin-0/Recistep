@@ -1,22 +1,29 @@
 import "server-only";
 import type { RecipeExtraction } from "@/lib/schemas/recipe";
-import { updateSourceImport } from "@/lib/server/supabase-rest";
+import { getSourceImport, updateSourceImport } from "@/lib/server/supabase-rest";
 
 /**
  * Consumes a streaming extraction, persisting each progressive snapshot to the
  * import so an SSE reader can render the recipe as it is deciphered. Returns
- * the final strict-validated recipe. Partial persistence is best-effort: a
- * failed snapshot write never fails the extraction, because the authoritative
- * draft is persisted separately by the caller.
+ * the final strict-validated recipe, or `null` when the import was cancelled.
+ * Partial persistence is best-effort: a failed snapshot write never fails the
+ * extraction, because the authoritative draft is persisted separately by the
+ * caller.
  */
 export async function streamExtractToImport(input: {
   importId: string;
   stream: AsyncGenerator<RecipeExtraction, void, undefined>;
-}): Promise<RecipeExtraction> {
+}): Promise<RecipeExtraction | null> {
   let seq = 0;
   let last: RecipeExtraction | null = null;
 
   for await (const partial of input.stream) {
+    const current = await getSourceImport(input.importId).catch(() => null);
+    if (current?.status === "cancelled") {
+      try { await updateSourceImport(input.importId, { recipe_partial: null }); } catch { /* best-effort */ }
+      return null;
+    }
+
     last = partial;
     seq += 1;
     try {
@@ -30,6 +37,12 @@ export async function streamExtractToImport(input: {
   }
 
   if (!last) throw new Error("EXTRACTION_STREAM_EMPTY");
+
+  const finalRecord = await getSourceImport(input.importId).catch(() => null);
+  if (finalRecord?.status === "cancelled") {
+    try { await updateSourceImport(input.importId, { recipe_partial: null }); } catch { /* best-effort */ }
+    return null;
+  }
 
   try {
     await updateSourceImport(input.importId, { recipe_partial: null });

@@ -2,6 +2,10 @@
 
 Recistep is a Next.js 16 App Router PWA (React 19, TypeScript strict, Zod 3, Vitest) that imports recipes from public YouTube/TikTok/Instagram links. Docs and user-facing strings are Portuguese (pt-BR); keep that when editing.
 
+## Language notes
+
+- In pt-BR requests, "invés de" / "invés" may be used by the user to mean the opposite of the stated option ("ao contrário", "não fazer isso"). When the user says "X invés de Y", treat it as "not Y" and confirm the intended direction before acting if ambiguous.
+
 ## Commands
 
 Node 22.x is required (`engines`). There is **no lint or formatter config** in this repo.

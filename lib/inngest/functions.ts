@@ -55,6 +55,11 @@ export const processImportRequested = inngest.createFunction(
     if (!record) throw new Error("IMPORT_NOT_FOUND");
     if (record.status !== "queued") return { id, status: record.status, skipped: true };
 
+    const beforeProcessing = await getSourceImport(id);
+    if (beforeProcessing?.status === "cancelled") {
+      return { id, status: "cancelled", skipped: true };
+    }
+
     await step.run("mark-processing", async () => updateSourceImport(id, {
       status: "processing",
       error_code: null,
@@ -184,11 +189,46 @@ export const processImportRequested = inngest.createFunction(
         });
       };
 
-      const draft = titleCache?.recipe_draft
+      // Check for cancellation before starting the (possibly long) extraction.
+      const beforeExtraction = await getSourceImport(id);
+      if (beforeExtraction?.status === "cancelled") {
+        if (preparedMedia) {
+          const toDelete = preparedMedia;
+          await step.run("cleanup-cancelled-media", async () => deletePreparedMedia(toDelete));
+        }
+        return { id, status: "cancelled" };
+      }
+
+      const extracted = titleCache?.recipe_draft
         ? applyCupToGramsConversion(titleCache.recipe_draft as import("@/lib/schemas/recipe").RecipeExtraction, convertCupsToGrams)
         : await step.run("extract-recipe-from-public-source", async () =>
-          streamExtractToImport({ importId: id, stream: runExtraction() }),
-        );
+            streamExtractToImport({ importId: id, stream: runExtraction() }),
+          );
+
+      if (extracted === null) {
+        if (preparedMedia) {
+          const toDelete = preparedMedia;
+          await step.run("cleanup-cancelled-media", async () => deletePreparedMedia(toDelete));
+        }
+        await step.run("mark-cancelled-after-extraction", async () => updateSourceImport(id, {
+          status: "cancelled",
+          recipe_partial: null,
+          error_code: "CANCELLED_BY_USER",
+          error_message: "Importação cancelada.",
+        }));
+        return { id, status: "cancelled" };
+      }
+
+      const afterExtraction = await getSourceImport(id);
+      if (afterExtraction?.status === "cancelled") {
+        if (preparedMedia) {
+          const toDelete = preparedMedia;
+          await step.run("cleanup-cancelled-media", async () => deletePreparedMedia(toDelete));
+        }
+        return { id, status: "cancelled" };
+      }
+
+      const draft = extracted;
 
       if (preparedMedia) {
         const toDelete = preparedMedia;
@@ -272,6 +312,11 @@ export const processTranscriptSubmitted = inngest.createFunction(
       return { id, status: record.status, skipped: true };
     }
 
+    const beforeTranscriptProcessing = await getSourceImport(id);
+    if (beforeTranscriptProcessing?.status === "cancelled") {
+      return { id, status: "cancelled", skipped: true };
+    }
+
     await step.run("mark-transcript-processing", async () => updateSourceImport(id, {
       status: "processing",
       error_code: null,
@@ -280,7 +325,7 @@ export const processTranscriptSubmitted = inngest.createFunction(
     }));
 
     try {
-      const draft = await step.run("extract-structured-recipe-with-gemini", async () =>
+      const extracted = await step.run("extract-structured-recipe-with-gemini", async () =>
         streamExtractToImport({
           importId: id,
            stream: streamRecipeFromTranscript({
@@ -294,6 +339,21 @@ export const processTranscriptSubmitted = inngest.createFunction(
            }),
         }),
       );
+
+      if (extracted === null) {
+        await step.run("mark-cancelled-after-transcript-extraction", async () =>
+          updateSourceImport(id, {
+            status: "cancelled",
+            source_transcript: null,
+            recipe_partial: null,
+            error_code: "CANCELLED_BY_USER",
+            error_message: "Importação cancelada.",
+          }),
+        );
+        return { id, status: "cancelled" };
+      }
+
+      const draft = extracted;
 
       await step.run("persist-recipe-draft-and-clear-transcript", async () =>
         updateSourceImport(id, {
