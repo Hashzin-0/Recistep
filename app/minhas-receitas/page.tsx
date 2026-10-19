@@ -84,11 +84,30 @@ export default function MinhasReceitasPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const videoModalRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (!videoModal) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setVideoModal(null); };
+    const element = videoModalRef.current;
+    if (element && document.fullscreenEnabled && !document.fullscreenElement) {
+      void element.requestFullscreen().catch(() => undefined);
+    }
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) setVideoModal(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        setVideoModal(null);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      window.removeEventListener("keydown", onKeyDown);
+      if (document.fullscreenElement === element) void document.exitFullscreen().catch(() => undefined);
+    };
   }, [videoModal]);
 
   async function remove(id: string, title: string) {
@@ -221,12 +240,12 @@ export default function MinhasReceitasPage() {
             })}
           </div>
 
-          {videoModal && (
-            <div className="recipe-video-modal-backdrop" role="presentation" onClick={() => setVideoModal(null)}>
+           {videoModal && (
+            <div ref={videoModalRef} className="recipe-video-modal-backdrop" role="presentation" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); setVideoModal(null); }}>
               <div className="recipe-video-modal" role="dialog" aria-modal="true" aria-label={`Vídeo de ${videoModal.title}`} onClick={(event) => event.stopPropagation()}>
                 <div className="recipe-video-modal-header">
                   <strong className="recipe-video-modal-title">{videoModal.title}</strong>
-                  <button className="link-button" type="button" onClick={() => setVideoModal(null)} aria-label="Fechar vídeo">Fechar</button>
+                  <button className="link-button" type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); setVideoModal(null); }} aria-label="Fechar vídeo">Fechar</button>
                 </div>
                 <VideoDisplay display={videoModal.display} title={videoModal.title} />
               </div>
