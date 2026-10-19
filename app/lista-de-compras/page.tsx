@@ -12,7 +12,7 @@ import type { ExecuteToolFn } from "@/lib/voice/live-session";
 import { SHOPPING_TOOLS, executeShoppingTool, type ShoppingVoiceBridge } from "@/lib/voice/shopping-tools";
 import type { RecipeSummary } from "@/lib/recipe/recipe-draft";
 
-type ShoppingItem = { id: string; name: string; quantity: number | null; unit: string | null; notes: string | null; is_purchased: boolean };
+type ShoppingItem = { id: string; name: string; quantity: number | null; unit: string | null; notes: string | null; is_purchased: boolean; source_recipe_ids?: string[] };
 type ShoppingList = { id: string; title: string; items: ShoppingItem[] };
 
 const SHOPPING_TOOL_GROUPS = [defineToolGroup(SHOPPING_TOOLS)];
@@ -30,6 +30,7 @@ export default function ListaDeComprasPage() {
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [portions, setPortions] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +46,13 @@ export default function ListaDeComprasPage() {
       ]);
       setLists(listsData);
       setRecipes(recipesData);
+      setPortions((previous) => {
+        const next = { ...previous };
+        for (const recipe of recipesData) {
+          if (next[recipe.id] === undefined) next[recipe.id] = recipe.servings && recipe.servings > 0 ? recipe.servings : 1;
+        }
+        return next;
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar suas listas.");
     } finally {
@@ -53,6 +61,9 @@ export default function ListaDeComprasPage() {
   }, [accessToken]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const usedRecipeIds = useMemo(() => new Set(lists.flatMap((list) => list.items.flatMap((item) => item.source_recipe_ids ?? []))), [lists]);
+  const availableRecipes = useMemo(() => recipes.filter((recipe) => !usedRecipeIds.has(recipe.id)), [recipes, usedRecipeIds]);
 
   function toggleSelected(recipeId: string) {
     setSelected((previous) => previous.includes(recipeId) ? previous.filter((id) => id !== recipeId) : [...previous, recipeId]);
@@ -63,11 +74,15 @@ export default function ListaDeComprasPage() {
     setCreating(true);
     setError("");
     try {
-      const created = await apiFetch<ShoppingList>("/api/v1/shopping-lists", accessToken, {
-        method: "POST",
-        body: JSON.stringify({ recipe_ids: selected }),
-      });
-      setLists((previous) => [created, ...previous]);
+      const createdLists: ShoppingList[] = [];
+      for (const recipeId of selected) {
+        const created = await apiFetch<ShoppingList>("/api/v1/shopping-lists", accessToken, {
+          method: "POST",
+          body: JSON.stringify({ recipe_ids: [recipeId], servings: [portions[recipeId] ?? 1] }),
+        });
+        createdLists.push(created);
+      }
+      setLists((previous) => [...createdLists, ...previous]);
       setSelected([]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível criar a lista.");
@@ -164,11 +179,11 @@ export default function ListaDeComprasPage() {
     setLists((current) => current.filter((list) => list.id !== listId));
   }, [accessToken]);
 
-  const createFromRecipes = useCallback(async (recipeIds: string[]) => {
+  const createFromRecipes = useCallback(async (recipeIds: string[], servings?: number[] | null) => {
     if (!accessToken) throw new Error("Entre novamente para criar a lista.");
     const created = await apiFetch<ShoppingList>("/api/v1/shopping-lists", accessToken, {
       method: "POST",
-      body: JSON.stringify({ recipe_ids: recipeIds }),
+      body: JSON.stringify({ recipe_ids: recipeIds, servings: servings ?? undefined }),
     });
     setLists((current) => [created, ...current]);
     return { id: created.id, title: created.title };
@@ -177,7 +192,7 @@ export default function ListaDeComprasPage() {
   const shoppingBridgeRef = useRef<ShoppingVoiceBridge | null>(null);
   const shoppingBridge = useMemo<ShoppingVoiceBridge>(() => ({
     lists,
-    recipes: recipes.map((recipe) => ({ id: recipe.id, title: recipe.title })),
+    recipes: availableRecipes.map((recipe) => ({ id: recipe.id, title: recipe.title })),
     actions: {
       setItemPurchased,
       setItemsPurchased,
@@ -188,7 +203,7 @@ export default function ListaDeComprasPage() {
       deleteList,
       createListFromRecipes: createFromRecipes,
     },
-  }), [lists, recipes, setItemPurchased, setItemsPurchased, addItem, removeItem, removeItems, renameList, deleteList, createFromRecipes]);
+  }), [lists, availableRecipes, setItemPurchased, setItemsPurchased, addItem, removeItem, removeItems, renameList, deleteList, createFromRecipes]);
   useEffect(() => { shoppingBridgeRef.current = shoppingBridge; }, [shoppingBridge]);
 
   const executeVoiceTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
@@ -222,11 +237,22 @@ export default function ListaDeComprasPage() {
             {recipes.length === 0 && !loading && (
               <p className="field-hint">Você ainda não tem receitas salvas. <Link href="/minhas-receitas/nova">Crie uma receita</Link>.</p>
             )}
+            {recipes.length > 0 && availableRecipes.length === 0 && !loading && (
+              <p className="field-hint">Todas as receitas já têm lista de compras gerada.</p>
+            )}
             <div className="shopping-recipe-picker">
-              {recipes.map((recipe) => (
+              {availableRecipes.map((recipe) => (
                 <label key={recipe.id} className="shopping-recipe-option">
                   <input type="checkbox" checked={selected.includes(recipe.id)} onChange={() => toggleSelected(recipe.id)} />
                   <span>{recipe.title}</span>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    value={portions[recipe.id] ?? (recipe.servings && recipe.servings > 0 ? recipe.servings : 1)}
+                    onChange={(event) => setPortions((previous) => ({ ...previous, [recipe.id]: Number(event.target.value) }))}
+                    aria-label={`Porções para ${recipe.title}`}
+                  />
                 </label>
               ))}
             </div>

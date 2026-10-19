@@ -5,7 +5,12 @@ import { authenticateSupabaseAccessToken, createShoppingListFromRecipes, getShop
 import { authenticateRequest } from "@/lib/server/route-auth";
 
 export const runtime = "nodejs";
-const schema = z.object({ recipe_ids: z.array(z.string().uuid()).min(1).max(50) }).strict();
+const schema = z.object({
+  recipe_ids: z.array(z.string().uuid()).min(1).max(50),
+  servings: z.array(z.number().positive().max(1000)).optional(),
+}).strict().refine((data) => !data.servings || data.servings.length === data.recipe_ids.length, {
+  message: "A lista de porções deve ter o mesmo tamanho da lista de receitas.",
+});
 
 export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
@@ -42,7 +47,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Informe uma ou mais receitas confirmadas." } }, { status: 400 });
   try {
-    const list = await createShoppingListFromRecipes(user.id, parsed.data.recipe_ids);
+    const list = await createShoppingListFromRecipes(user.id, parsed.data.recipe_ids, parsed.data.servings);
     const data = await getShoppingListForUser(list.id, user.id);
     if (!data) return NextResponse.json({ error: { code: "SHOPPING_LIST_NOT_FOUND" } }, { status: 500 });
     return NextResponse.json({ data }, { status: 201 });

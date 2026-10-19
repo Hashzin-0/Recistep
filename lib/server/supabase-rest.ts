@@ -248,10 +248,10 @@ export type ShoppingListItemRecord = {
 export type ShoppingListRecord = {
   id: string; title: string; created_at: string; updated_at: string; items: ShoppingListItemRecord[];
 };
-export async function createShoppingListFromRecipes(userId: string, recipeIds: string[]): Promise<{ id: string; title: string }> {
+export async function createShoppingListFromRecipes(userId: string, recipeIds: string[], targetServings?: number[] | null): Promise<{ id: string; title: string }> {
   const result = await supabaseRequest<{ id: string; title: string } | Array<{ id: string; title: string }>>(
     "rpc/create_shopping_list_from_recipes",
-    { method: "POST", body: JSON.stringify({ p_user_id: userId, p_recipe_ids: recipeIds }) },
+    { method: "POST", body: JSON.stringify({ p_user_id: userId, p_recipe_ids: recipeIds, p_target_servings: targetServings ?? null }) },
   );
   const row = Array.isArray(result) ? result[0] : result;
   if (!row || typeof row.id !== "string") throw new Error("SHOPPING_LIST_CREATE_EMPTY");

@@ -33,7 +33,7 @@ export interface ShoppingVoiceActions {
   setItemPurchased(listId: string, itemId: string, purchased: boolean): Promise<void>;
   addItem(listId: string, input: { name: string; quantity: number | null; unit: string | null; notes: string | null }): Promise<void>;
   removeItem(listId: string, itemId: string): Promise<void>;
-  createListFromRecipes(recipeIds: string[]): Promise<{ id?: string; title?: string } | void>;
+  createListFromRecipes(recipeIds: string[], servings?: number[] | null): Promise<{ id?: string; title?: string } | void>;
 }
 
 export interface ShoppingVoiceBridge {
@@ -304,14 +304,19 @@ export async function executeShoppingTool(
         );
       }
       setActionLabel("Gerando a lista de compras");
-      const created = await bridge.actions.createListFromRecipes(ids);
-      const title = (created && typeof created === "object" && "title" in created ? created.title : null) ?? "lista de compras";
+      const createdLists: Array<{ id?: string; title?: string } | void> = [];
+      for (const id of ids) {
+        const created = await bridge.actions.createListFromRecipes([id]);
+        if (created) createdLists.push(created);
+      }
+      const title = (createdLists[0] && typeof createdLists[0] === "object" && "title" in createdLists[0] ? createdLists[0].title : null) ?? "lista de compras";
       return {
         success: true,
         recipe_ids: ids,
-        list: created ?? null,
+        lists: createdLists,
+        list: createdLists[0] ?? null,
         missing,
-        message: `Lista gerada a partir de ${ids.length} receita(s).`,
+        message: `${createdLists.length} lista(s) gerada(s) a partir de ${ids.length} receita(s).`,
       };
     }
 

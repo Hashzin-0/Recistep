@@ -18,7 +18,7 @@ function failure(result: unknown): string {
 function list(overrides: Partial<ShoppingList> = {}): ShoppingList {
   return {
     id: "list-1",
-    title: "Compras: Bolo",
+    title: "Bolo",
     items: [
       { id: "item-1", name: "Farinha de trigo", quantity: 200, unit: "g", notes: null, is_purchased: false },
       { id: "item-2", name: "Ovos", quantity: null, unit: null, notes: "a gosto", is_purchased: true },
@@ -32,7 +32,7 @@ function makeActions(): ShoppingVoiceActions {
     setItemPurchased: vi.fn(async () => undefined),
     addItem: vi.fn(async () => undefined),
     removeItem: vi.fn(async () => undefined),
-    createListFromRecipes: vi.fn(async () => ({ id: "list-new", title: "Compras: Pão" })),
+    createListFromRecipes: vi.fn(async () => ({ id: "list-new", title: "Pão" })),
   };
 }
 
@@ -94,7 +94,7 @@ describe("executeShoppingTool — leitura", () => {
   });
 
   it("matches a list by partial title ignoring accents", async () => {
-    const { bridge } = makeBridge([list(), list({ id: "list-2", title: "Compras: Pão", items: [] })]);
+    const { bridge } = makeBridge([list(), list({ id: "list-2", title: "Pão", items: [] })]);
     const output = (await run(bridge, "listShoppingItems", { list_title: "pao" })) as ToolResult;
     expect(output.list.id).toBe("list-2");
   });

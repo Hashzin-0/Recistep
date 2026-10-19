@@ -40,7 +40,7 @@ function makeBridge(overrides: Partial<RecipeDetail> = {}): {
   const actions: RecipeDetailVoiceActions = {
     rate: vi.fn(async () => undefined),
     startFlowchart: vi.fn(),
-    createShoppingList: vi.fn(async () => ({ id: "list-1", title: "Compras: Bolo de fubá" })),
+    createShoppingList: vi.fn(async () => ({ id: "list-1", title: "Bolo de fubá" })),
     deleteRecipe: vi.fn(async () => undefined),
     openEdit: vi.fn(),
     startPrep: vi.fn(),
@@ -108,7 +108,7 @@ describe("executeRecipeDetailTool", () => {
     const { bridge, actions } = makeBridge();
     const output = (await run(bridge, "createShoppingList")) as ToolResult;
     expect(actions.createShoppingList).toHaveBeenCalled();
-    expect(output.message).toContain("Compras: Bolo de fubá");
+    expect(output.message).toContain("Bolo de fubá");
   });
 
   it("opens the edit screen", async () => {
