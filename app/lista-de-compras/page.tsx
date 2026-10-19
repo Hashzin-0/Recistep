@@ -31,6 +31,7 @@ export default function ListaDeComprasPage() {
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [portions, setPortions] = useState<Record<string, number>>({});
+  const [viewMode, setViewMode] = useState<"separate" | "combined">("separate");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -64,6 +65,52 @@ export default function ListaDeComprasPage() {
 
   const usedRecipeIds = useMemo(() => new Set(lists.flatMap((list) => list.items.flatMap((item) => item.source_recipe_ids ?? []))), [lists]);
   const availableRecipes = useMemo(() => recipes.filter((recipe) => !usedRecipeIds.has(recipe.id)), [recipes, usedRecipeIds]);
+
+  type CombinedItem = {
+    key: string;
+    name: string;
+    quantity: number | null;
+    unit: string | null;
+    notes: string | null;
+    is_purchased: boolean;
+    refs: { list: ShoppingList; item: ShoppingItem }[];
+  };
+
+  const combinedItems = useMemo<CombinedItem[]>(() => {
+    const groups = new Map<string, CombinedItem>();
+    for (const list of lists) {
+      for (const item of list.items) {
+        const nameKey = item.name.trim().toLowerCase().replace(/\s+/g, " ");
+        const unitKey = (item.unit ?? "").trim().toLowerCase();
+        const key = nameKey + "\u0000" + unitKey;
+        const existing = groups.get(key);
+        if (existing) {
+          if (item.quantity !== null && existing.quantity !== null) {
+            existing.quantity = existing.quantity + item.quantity;
+          } else if (item.quantity !== null && existing.quantity === null) {
+            // keep unknown if any unknown? preserve null to avoid inventing
+            existing.quantity = null;
+          }
+          if (item.notes && !existing.notes?.includes(item.notes)) {
+            existing.notes = existing.notes ? existing.notes + "; " + item.notes : item.notes;
+          }
+          existing.is_purchased = existing.is_purchased && item.is_purchased;
+          existing.refs.push({ list, item });
+        } else {
+          groups.set(key, {
+            key,
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit,
+            notes: item.notes,
+            is_purchased: item.is_purchased,
+            refs: [{ list, item }],
+          });
+        }
+      }
+    }
+    return [...groups.values()];
+  }, [lists]);
 
   function toggleSelected(recipeId: string) {
     setSelected((previous) => previous.includes(recipeId) ? previous.filter((id) => id !== recipeId) : [...previous, recipeId]);
@@ -106,6 +153,11 @@ export default function ListaDeComprasPage() {
       setLists(previous);
       setError("Não foi possível salvar o estado do item.");
     }
+  }
+
+  async function toggleCombinedItem(item: CombinedItem, checked: boolean) {
+    if (!accessToken) return;
+    await Promise.all(item.refs.map((ref) => toggleItem(ref.list, ref.item, checked)));
   }
 
   async function removeList(list: ShoppingList) {
@@ -269,8 +321,13 @@ export default function ListaDeComprasPage() {
             </div>
           )}
 
-          <div className="shopping-lists">
-            {lists.map((list) => (
+           <div className="shopping-view-toggle" role="group" aria-label="Modo de visualização">
+             <button type="button" className={viewMode === "separate" ? "import-button" : "secondary-button"} onClick={() => setViewMode("separate")}>Listas separadas</button>
+             <button type="button" className={viewMode === "combined" ? "import-button" : "secondary-button"} onClick={() => setViewMode("combined")}>Lista única</button>
+           </div>
+
+           <div className="shopping-lists">
+            {viewMode === "separate" && lists.map((list) => (
               <section className="shopping-list-panel" key={list.id} aria-label={list.title}>
                 <div className="shopping-list-heading">
                   <h3>{list.title}</h3>
@@ -288,6 +345,24 @@ export default function ListaDeComprasPage() {
                 <p className="field-hint">{list.items.filter((item) => item.is_purchased).length} de {list.items.length} itens comprados</p>
               </section>
             ))}
+
+            {viewMode === "combined" && (
+              <section className="shopping-list-panel" aria-label="Lista combinada">
+                <div className="shopping-list-heading">
+                  <h3>Lista combinada</h3>
+                </div>
+                {combinedItems.map((item) => (
+                  <label className={"shopping-list-item" + (item.is_purchased ? " is-purchased" : "")} key={item.key}>
+                    <input type="checkbox" checked={item.is_purchased} onChange={(event) => void toggleCombinedItem(item, event.target.checked)} />
+                    <span>
+                      <strong>{item.name}</strong>
+                      <small>{item.quantity === null ? "Quantidade não informada" : item.quantity + (item.unit ? " " + item.unit : "")}{item.notes ? " · " + item.notes : ""}</small>
+                    </span>
+                  </label>
+                ))}
+                <p className="field-hint">{combinedItems.filter((item) => item.is_purchased).length} de {combinedItems.length} itens comprados</p>
+              </section>
+            )}
           </div>
         </>
       )}
