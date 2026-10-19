@@ -194,6 +194,22 @@ export async function getUserSourceImport(
   return records[0] ?? null;
 }
 
+export async function listUserSourceImports(
+  userId: string,
+  options: { statuses?: ImportStatus[]; limit?: number } = {},
+): Promise<SourceImportRecord[]> {
+  const params = new URLSearchParams({
+    select: "id,user_id,source_url,platform,locale,servings_target,status,recipe_id,source_url_hash,source_content_hash,recipe_fingerprint,source_metadata,recipe_draft,error_code,error_message,attempt_count,created_at,updated_at",
+    user_id: `eq.${userId}`,
+    order: "updated_at.desc",
+    limit: String(options.limit ?? 5),
+  });
+  if (options.statuses?.length) {
+    params.set("status", `in.(${options.statuses.join(",")})`);
+  }
+  return supabaseRequest<SourceImportRecord[]>(`source_imports?${params.toString()}`);
+}
+
 export type ImportStreamSnapshot = {
   status: ImportStatus;
   recipe_draft: unknown | null;
@@ -510,4 +526,36 @@ export async function consumeApiRateLimit(input: {
     throw new Error("RATE_LIMIT_RESPONSE_INVALID");
   }
   return row;
+}
+
+export async function renameShoppingListForUser(listId: string, userId: string, title: string): Promise<boolean> {
+  const params = new URLSearchParams({ id: `eq.${listId}`, user_id: `eq.${userId}`, select: "id" });
+  const lists = await supabaseRequest<Array<{ id: string }>>("shopping_lists?" + params.toString());
+  if (!lists[0]) return false;
+  await supabaseRequest<void>("shopping_lists?" + new URLSearchParams({ id: `eq.${listId}` }).toString(), {
+    method: "PATCH",
+    body: JSON.stringify({ title, updated_at: new Date().toISOString() }),
+  });
+  return true;
+}
+
+export async function searchRecipesByIngredient(userId: string, ingredient: string): Promise<RecipeSummary[]> {
+  const term = ingredient.trim().replace(/[%_]/g, " ");
+  if (!term) return [];
+  const ingredientParams = new URLSearchParams({
+    select: "recipe_id,recipes!inner(user_id)",
+    "recipes.user_id": `eq.${userId}`,
+    name: `ilike.*${term}*`,
+  });
+  const rows = await supabaseRequest<Array<{ recipe_id: string }>>("ingredients?" + ingredientParams.toString());
+  const ids = [...new Set(rows.map((row) => row.recipe_id))];
+  if (ids.length === 0) return [];
+  const params = new URLSearchParams({
+    select: `${RECIPE_COLUMNS},ingredients(count),preparation_steps(count)`,
+    user_id: `eq.${userId}`,
+    order: "updated_at.desc",
+  });
+  params.set("id", `in.(${ids.join(",")})`);
+  const recipeRows = await supabaseRequest<RecipeListRow[]>("recipes?" + params.toString());
+  return recipeRows.map((row) => recipeSummary(row, row.ingredients?.[0]?.count ?? 0, row.preparation_steps?.[0]?.count ?? 0));
 }

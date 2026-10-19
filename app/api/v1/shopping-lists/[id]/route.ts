@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authenticateSupabaseAccessToken, deleteShoppingListForUser, getShoppingListForUser, getSupabaseConfig } from "@/lib/server/supabase-rest";
+import { authenticateSupabaseAccessToken, deleteShoppingListForUser, getShoppingListForUser, getSupabaseConfig, renameShoppingListForUser } from "@/lib/server/supabase-rest";
 import { authenticateRequest, isUuid } from "@/lib/server/route-auth";
 
 export const runtime = "nodejs";
@@ -15,6 +15,35 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const data = await getShoppingListForUser(id, user.id);
     return data ? NextResponse.json({ data }) : NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
   } catch { return NextResponse.json({ error: { code: "SHOPPING_LIST_READ_FAILED" } }, { status: 500 }); }
+}
+
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const auth = await authenticateRequest(request);
+  if (!auth.ok) return auth.response;
+  const { id } = await context.params;
+  if (!isUuid(id)) return NextResponse.json({ error: { code: "INVALID_ID" } }, { status: 400 });
+  let payload: unknown;
+  try {
+    const raw = await request.text();
+    if (raw.length > 10_000) return NextResponse.json({ error: { code: "REQUEST_TOO_LARGE" } }, { status: 413 });
+    payload = JSON.parse(raw);
+  } catch {
+    return NextResponse.json({ error: { code: "INVALID_JSON" } }, { status: 400 });
+  }
+  const title = typeof payload === "object" && payload !== null && "title" in payload && typeof (payload as { title: unknown }).title === "string"
+    ? (payload as { title: string }).title.trim()
+    : "";
+  if (title.length === 0 || title.length > 120) {
+    return NextResponse.json({ error: { code: "INVALID_TITLE", message: "O título da lista é obrigatório (1 a 120 caracteres).", retryable: false } }, { status: 422 });
+  }
+  try {
+    const renamed = await renameShoppingListForUser(id, auth.user.id, title);
+    return renamed
+      ? NextResponse.json({ data: { id, title } })
+      : NextResponse.json({ error: { code: "NOT_FOUND", message: "Lista não encontrada." } }, { status: 404 });
+  } catch {
+    return NextResponse.json({ error: { code: "SHOPPING_LIST_RENAME_FAILED", message: "Não foi possível renomear a lista." } }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {

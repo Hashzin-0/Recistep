@@ -7,6 +7,7 @@ import {
   createManualRecipe,
   getRecipeForUser,
   listRecipesForUser,
+  searchRecipesByIngredient,
 } from "@/lib/server/supabase-rest";
 
 export const runtime = "nodejs";
@@ -14,8 +15,11 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if (!auth.ok) return auth.response;
+  const ingredient = new URL(request.url).searchParams.get("ingredient")?.trim();
   try {
-    const data = await listRecipesForUser(auth.user.id);
+    const data = ingredient
+      ? await searchRecipesByIngredient(auth.user.id, ingredient)
+      : await listRecipesForUser(auth.user.id);
     return NextResponse.json({ data });
   } catch {
     return NextResponse.json({ error: { code: "RECIPES_READ_FAILED", message: "Não foi possível carregar suas receitas.", retryable: true } }, { status: 503 });

@@ -8,7 +8,9 @@ import {
   authenticateSupabaseAccessToken,
   createSourceImport,
   getSupabaseConfig,
+  listUserSourceImports,
   updateSourceImport,
+  type ImportStatus,
 } from "@/lib/server/supabase-rest";
 import { findCachedRecipeByUrl, fingerprintRecipe, hashSourceUrl } from "@/lib/server/recipe-cache";
 
@@ -26,6 +28,72 @@ function bearerToken(request: Request): string | null {
   if (!value?.startsWith("Bearer ")) return null;
   const token = value.slice(7).trim();
   return token.length >= 20 && token.length <= 4096 ? token : null;
+}
+
+const ACTIVE_IMPORT_STATUSES: ImportStatus[] = [
+  "queued",
+  "processing",
+  "source_content_required",
+  "review_required",
+];
+
+const ALL_IMPORT_STATUSES: ImportStatus[] = [
+  ...ACTIVE_IMPORT_STATUSES,
+  "completed",
+  "failed",
+  "cancelled",
+];
+
+export async function GET(request: Request) {
+  if (!getSupabaseConfig()) {
+    return NextResponse.json({
+      error: { code: "PERSISTENCE_NOT_CONFIGURED", message: "A persistência ainda não está configurada.", retryable: false },
+    }, { status: 503 });
+  }
+
+  const token = bearerToken(request);
+  if (!token) {
+    return NextResponse.json({
+      error: { code: "UNAUTHORIZED", message: "Entre na sua conta para listar suas importações.", retryable: false },
+    }, { status: 401 });
+  }
+
+  let user: { id: string };
+  try {
+    user = await authenticateSupabaseAccessToken(token);
+  } catch {
+    return NextResponse.json({
+      error: { code: "UNAUTHORIZED", message: "A sessão é inválida ou expirou.", retryable: false },
+    }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const requestedStatuses = url.searchParams.get("status");
+  let statuses = ACTIVE_IMPORT_STATUSES;
+  if (requestedStatuses) {
+    const parsedStatuses = requestedStatuses
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (parsedStatuses.length === 0 || !parsedStatuses.every((value): value is ImportStatus => ALL_IMPORT_STATUSES.includes(value as ImportStatus))) {
+      return NextResponse.json({
+        error: { code: "INVALID_STATUS_FILTER", message: "Filtro de status inválido.", retryable: false },
+      }, { status: 400 });
+    }
+    statuses = parsedStatuses;
+  }
+
+  const rawLimit = Number(url.searchParams.get("limit") ?? "");
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 20) : 5;
+
+  try {
+    const records = await listUserSourceImports(user.id, { statuses, limit });
+    return NextResponse.json({ data: records });
+  } catch {
+    return NextResponse.json({
+      error: { code: "PERSISTENCE_UNAVAILABLE", message: "Não foi possível listar suas importações agora.", retryable: true },
+    }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {

@@ -10,16 +10,18 @@ import { useVoiceAssistantContext, type VoiceContextConfig } from "@/components/
 import { apiFetch } from "@/lib/client/api";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { LIBRARY_TOOLS, executeLibraryTool, type LibraryRecipe, type LibraryVoiceBridge } from "@/lib/voice/library-tools";
+import { LIBRARY_EXTRA_TOOLS, executeLibraryExtraTool, type LibraryExtraBridge } from "@/lib/voice/library-extra-tools";
 import type { ExecuteToolFn } from "@/lib/voice/live-session";
 import type { RecipeSummary } from "@/lib/recipe/recipe-draft";
 
-const LIBRARY_TOOL_GROUPS = [defineToolGroup(LIBRARY_TOOLS)];
+const LIBRARY_TOOL_GROUPS = [defineToolGroup(LIBRARY_TOOLS), defineToolGroup(LIBRARY_EXTRA_TOOLS)];
 
 const LIBRARY_SYSTEM_INSTRUCTION = [
   "Você é o assistente de voz do Recistep na tela 'Minhas receitas'.",
   "Fale em português do Brasil, de forma curta e natural.",
-  "Ajude o usuário a escolher uma receita salva: liste com listRecipes, procure pelo nome com findRecipes e abra a escolhida com openRecipe.",
+  "Ajude o usuário a escolher uma receita salva: liste com listRecipes, procure pelo nome com findRecipes, procure por ingrediente com findRecipesByIngredient e abra a escolhida com openRecipe.",
   "Quando o usuário quiser cozinhar, abra a receita com start_prep=true e depois conduza o preparo.",
+  "Para copiar uma receita use duplicateRecipe; para editar use openRecipeEdit; para excluir use deleteRecipe sempre com confirmação do usuário.",
   "Nunca invente receitas, ingredientes ou tempos que não estejam nos dados listados.",
 ].join("\n");
 
@@ -66,9 +68,8 @@ export default function MinhasReceitasPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function remove(id: string, title: string) {
+  async function removeRecipe(id: string) {
     if (!accessToken) return;
-    if (!window.confirm(`Excluir a receita "${title}"? Esta ação não pode ser desfeita.`)) return;
     setBusyId(id);
     setError("");
     try {
@@ -81,6 +82,11 @@ export default function MinhasReceitasPage() {
     }
   }
 
+  async function remove(id: string, title: string) {
+    if (!window.confirm(`Excluir a receita "${title}"? Esta ação não pode ser desfeita.`)) return;
+    await removeRecipe(id);
+  }
+
   const libraryBridgeRef = useRef<LibraryVoiceBridge | null>(null);
   const openRecipe = useCallback((recipeId: string, startPrep: boolean) => {
     router.push("/minhas-receitas/" + recipeId + (startPrep ? "?preparo=1" : ""));
@@ -91,10 +97,55 @@ export default function MinhasReceitasPage() {
   );
   useEffect(() => { libraryBridgeRef.current = libraryBridge; }, [libraryBridge]);
 
+  const libraryExtraBridgeRef = useRef<LibraryExtraBridge | null>(null);
+  const searchByIngredient = useCallback(async (ingredient: string) => {
+    if (!accessToken) throw new Error("Entre novamente para procurar receitas.");
+    const found = await apiFetch<RecipeSummary[]>("/api/v1/recipes?ingredient=" + encodeURIComponent(ingredient), accessToken);
+    return found.map(toLibraryRecipe);
+  }, [accessToken]);
+  const openEdit = useCallback((recipeId: string) => {
+    router.push(`/minhas-receitas/${recipeId}/editar`);
+  }, [router]);
+  const duplicateRecipe = useCallback(async (recipeId: string) => {
+    if (!accessToken) return { ok: false, message: "Entre novamente para duplicar a receita." };
+    try {
+      const created = await apiFetch<{ id: string }>(`/api/v1/recipes/${recipeId}/duplicate`, accessToken, { method: "POST" });
+      const list = await apiFetch<RecipeSummary[]>("/api/v1/recipes", accessToken);
+      setRecipes(list);
+      return { ok: true, message: `Cópia criada e salva em Minhas receitas.` };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Não foi possível duplicar a receita.";
+      setError(message);
+      return { ok: false, message };
+    }
+  }, [accessToken]);
+  const deleteRecipe = useCallback(async (recipeId: string) => {
+    if (!accessToken) return { ok: false, message: "Entre novamente para excluir a receita." };
+    try {
+      await removeRecipe(recipeId);
+      return { ok: true, message: "Receita excluída." };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Não foi possível excluir a receita.";
+      return { ok: false, message };
+    }
+  }, [accessToken]);
+  const libraryExtraBridge = useMemo<LibraryExtraBridge>(
+    () => ({
+      recipes: recipes.map(toLibraryRecipe),
+      actions: { searchByIngredient, openEdit, duplicateRecipe, deleteRecipe },
+    }),
+    [recipes, searchByIngredient, openEdit, duplicateRecipe, deleteRecipe],
+  );
+  useEffect(() => { libraryExtraBridgeRef.current = libraryExtraBridge; }, [libraryExtraBridge]);
+
   const executeVoiceTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
-    const bridge = libraryBridgeRef.current;
-    if (!bridge) return { success: false, error: "A lista de receitas ainda não carregou." };
-    return executeLibraryTool(bridge, name, args, setActionLabel);
+    const library = libraryBridgeRef.current;
+    const extra = libraryExtraBridgeRef.current;
+    if (!library || !extra) return { success: false, error: "A lista de receitas ainda não carregou." };
+    if (["findRecipesByIngredient", "openRecipeEdit", "duplicateRecipe", "deleteRecipe"].includes(name)) {
+      return executeLibraryExtraTool(extra, name, args, setActionLabel);
+    }
+    return executeLibraryTool(library, name, args, setActionLabel);
   }, []);
 
   const voiceContext = useMemo<VoiceContextConfig>(() => ({

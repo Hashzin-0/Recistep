@@ -1,14 +1,42 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { useVoiceAssistantContext, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { PageTransition } from "@/components/view-transition";
 import { RecipeEditor } from "@/components/recipe-editor";
 import { apiFetch } from "@/lib/client/api";
+import { defineToolGroup } from "@/lib/voice/function-tool";
+import type { ExecuteToolFn } from "@/lib/voice/live-session";
+import { MANUAL_RECIPE_TOOL_GROUPS, buildManualEditSystemInstruction, executeManualRecipeEditTool, type ManualRecipeVoiceBridge } from "@/lib/voice/manual-recipe-tools";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
 import type { RecipeExtraction } from "@/lib/schemas/recipe";
+
+function EditarVoice({ contextKey, bridge }: { contextKey: string; bridge: ManualRecipeVoiceBridge }) {
+  const bridgeRef = useRef<ManualRecipeVoiceBridge | null>(null);
+  useEffect(() => { bridgeRef.current = bridge; }, [bridge]);
+
+  const executeVoiceTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const current = bridgeRef.current;
+    if (!current) return { success: false, error: "A receita ainda não carregou." };
+    return executeManualRecipeEditTool(current, name, args, setActionLabel);
+  }, []);
+
+  const systemInstruction = useMemo(() => buildManualEditSystemInstruction(bridge.draft), [bridge.draft]);
+  const voiceContext = useMemo<VoiceContextConfig>(() => ({
+    key: contextKey,
+    contextLabel: "Editar receita",
+    systemInstruction,
+    toolGroups: MANUAL_RECIPE_TOOL_GROUPS,
+    executeTool: executeVoiceTool,
+    thinkingLevel: "low",
+  }), [contextKey, systemInstruction, executeVoiceTool]);
+
+  useVoiceAssistantContext(voiceContext);
+  return null;
+}
 
 export default function EditarReceitaPage() {
   const params = useParams<{ id: string }>();
@@ -59,8 +87,7 @@ export default function EditarReceitaPage() {
     }
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function save() {
     if (!accessToken || !id || !draft) return;
     setSaving(true);
     setError("");
@@ -75,6 +102,20 @@ export default function EditarReceitaPage() {
       setSaving(false);
     }
   }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void save();
+  }
+
+  const manualBridge = useMemo<ManualRecipeVoiceBridge | null>(() => draft ? {
+    draft,
+    actions: {
+      commit: setDraft,
+      save: () => save(),
+      cancel: () => router.push(`/minhas-receitas/${id}`),
+    },
+  } : null, [draft, save, router, id]);
 
   return (
     <PageTransition>
@@ -91,6 +132,7 @@ export default function EditarReceitaPage() {
 
       {signedInEmail && (
         <>
+          {manualBridge && <EditarVoice contextKey={"manual-edit:" + id} bridge={manualBridge} />}
           {error && <p className="feedback feedback-error" role="alert">{error}</p>}
           {loading && !draft && <p className="field-hint">Carregando receita…</p>}
           {draft && (

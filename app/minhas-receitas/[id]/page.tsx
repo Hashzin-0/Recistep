@@ -2,16 +2,69 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SignInPrompt } from "@/components/sign-in-prompt";
+import { useVoiceAssistantContext, useVoiceAssistantControls, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { PageTransition } from "@/components/view-transition";
 import { KitchenMode } from "@/components/kitchen-mode";
 import { VideoDisplay } from "@/components/video-display";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { apiFetch } from "@/lib/client/api";
+import { defineToolGroup } from "@/lib/voice/function-tool";
+import type { ExecuteToolFn } from "@/lib/voice/live-session";
+import { buildRecipeDetailSystemInstruction } from "@/lib/voice/recipe-detail-tools";
+import {
+  RECIPE_DETAIL_TOOLS,
+  executeRecipeDetailTool,
+  type RecipeDetail,
+  type RecipeDetailVoiceActions,
+  type RecipeDetailVoiceBridge,
+} from "@/lib/voice/recipe-detail-tools";
 import type { RecipeApiData } from "@/lib/recipe/recipe-draft";
 import { IngredientIllustration } from "@/components/ingredient-illustration";
+
+const RECIPE_DETAIL_TOOL_GROUPS = [defineToolGroup(RECIPE_DETAIL_TOOLS)];
+
+function RecipeDetailVoice({
+  contextKey,
+  recipe,
+  actions,
+}: {
+  contextKey: string;
+  recipe: RecipeDetail;
+  actions: RecipeDetailVoiceActions;
+}) {
+  const bridgeRef = useRef<RecipeDetailVoiceBridge | null>(null);
+  const bridge = useMemo<RecipeDetailVoiceBridge>(() => ({ recipe, actions }), [recipe, actions]);
+  useEffect(() => { bridgeRef.current = bridge; }, [bridge]);
+
+  const executeVoiceTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const current = bridgeRef.current;
+    if (!current) return { success: false, error: "A receita ainda não carregou." };
+    return executeRecipeDetailTool(current, name, args, setActionLabel);
+  }, []);
+
+  const systemInstruction = useMemo(() => buildRecipeDetailSystemInstruction({
+    title: recipe.title,
+    description: recipe.description,
+    servings: recipe.servings,
+    ingredients_count: recipe.ingredients_count,
+    steps_count: recipe.steps_count,
+    total_seconds: recipe.total_seconds,
+  }), [recipe]);
+  const voiceContext = useMemo<VoiceContextConfig>(() => ({
+    key: contextKey,
+    contextLabel: "Receita",
+    systemInstruction,
+    toolGroups: RECIPE_DETAIL_TOOL_GROUPS,
+    executeTool: executeVoiceTool,
+    thinkingLevel: "low",
+  }), [contextKey, systemInstruction, executeVoiceTool]);
+
+  useVoiceAssistantContext(voiceContext);
+  return null;
+}
 
 function quantityLabel(quantity: number | null, unit: string | null, text: string | null | undefined): string {
   if (text) return text;
@@ -23,6 +76,7 @@ export default function ReceitaDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { accessToken, signedInEmail } = useAuth();
+  const voiceControls = useVoiceAssistantControls();
   const [data, setData] = useState<RecipeApiData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -87,20 +141,33 @@ export default function ReceitaDetalhePage() {
     finally { setMediaBusy(false); }
   }
 
-  async function generateFlowchart() {
-    if (!accessToken || !id) return;
+  async function generateFlowchart(options?: { notifyVoice?: boolean }) {
+    if (!accessToken || !id || !data) return;
     setMediaBusy(true); setMediaMessage("");
+    const title = data.recipe.title;
     try {
       const result = await apiFetch<{ preparation_flowchart_url: string }>("/api/v1/recipes/" + id + "/flowchart", accessToken, { method: "POST", body: JSON.stringify({}) });
       setData((current) => current ? { ...current, preparation_flowchart_url: result.preparation_flowchart_url } : current);
       setMediaMessage("Fluxograma gerado e salvo.");
-    } catch (cause) { setMediaMessage(cause instanceof Error ? cause.message : "Não foi possível gerar o fluxograma."); }
-    finally { setMediaBusy(false); }
+      if (options?.notifyVoice) voiceControls.sendText(`Aviso do sistema: o fluxograma de "${title}" ficou pronto e já está na tela.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Não foi possível gerar o fluxograma.";
+      setMediaMessage(message);
+      if (options?.notifyVoice) voiceControls.sendText(`Aviso do sistema: não foi possível gerar o fluxograma de "${title}". Motivo: ${message}`);
+    } finally { setMediaBusy(false); }
   }
 
-  async function remove() {
-    if (!accessToken || !id || !data) return;
-    if (!window.confirm(`Excluir a receita "${data.recipe.title}"? Esta ação não pode ser desfeita.`)) return;
+  async function createShoppingListForVoice() {
+    if (!accessToken || !data) throw new Error("Entre novamente para criar a lista.");
+    const created = await apiFetch<{ id: string; title: string }>("/api/v1/shopping-lists", accessToken, {
+      method: "POST",
+      body: JSON.stringify({ recipe_ids: [data.id] }),
+    });
+    return { id: created.id, title: created.title };
+  }
+
+  async function removeRecipe() {
+    if (!accessToken || !id) return;
     setDeleting(true);
     setError("");
     try {
@@ -111,6 +178,39 @@ export default function ReceitaDetalhePage() {
       setDeleting(false);
     }
   }
+
+  async function remove() {
+    if (!data) return;
+    if (!window.confirm(`Excluir a receita "${data.recipe.title}"? Esta ação não pode ser desfeita.`)) return;
+    await removeRecipe();
+  }
+
+  const handlersRef = useRef({ saveRating, generateFlowchart, createShoppingListForVoice, removeRecipe, router, id });
+  useEffect(() => { handlersRef.current = { saveRating, generateFlowchart, createShoppingListForVoice, removeRecipe, router, id }; });
+
+  const detailRecipe = useMemo<RecipeDetail | null>(() => data ? {
+    id: data.id,
+    title: data.recipe.title,
+    description: data.recipe.description,
+    servings: data.recipe.servings,
+    ingredients_count: data.recipe.ingredients.length,
+    steps_count: data.recipe.steps.length,
+    total_seconds: data.recipe.timings.total_seconds,
+    rating,
+    rating_count: ratingCount,
+    has_cover: Boolean(data.cover_image_url),
+    has_flowchart: Boolean(data.preparation_flowchart_url),
+    source_platform: data.video_display?.platform ?? null,
+  } : null, [data, rating, ratingCount]);
+
+  const detailActions = useMemo<RecipeDetailVoiceActions>(() => ({
+    rate: (value) => handlersRef.current.saveRating(value),
+    startFlowchart: () => { void handlersRef.current.generateFlowchart({ notifyVoice: true }); },
+    createShoppingList: () => handlersRef.current.createShoppingListForVoice(),
+    deleteRecipe: () => handlersRef.current.removeRecipe(),
+    openEdit: () => handlersRef.current.router.push(`/minhas-receitas/${handlersRef.current.id}/editar`),
+    startPrep: () => setStarted(true),
+  }), []);
 
   return (
     <PageTransition>
@@ -130,6 +230,10 @@ export default function ReceitaDetalhePage() {
         <>
           {error && <p className="feedback feedback-error" role="alert">{error}</p>}
           {loading && !data && <p className="field-hint">Carregando receita…</p>}
+
+          {data && !started && detailRecipe && (
+            <RecipeDetailVoice contextKey={"recipe-detail:" + data.id} recipe={detailRecipe} actions={detailActions} />
+          )}
 
           {data && (
             <section className="recipe-detail">

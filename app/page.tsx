@@ -13,12 +13,16 @@ import { VoiceTranscriptInput } from "@/components/voice-transcript-input";
 import { PageTransition } from "@/components/view-transition";
 import { defineToolGroup } from "@/lib/voice/function-tool";
 import { buildReviewSystemInstruction } from "@/lib/voice/prompts";
+import { buildImportSystemInstruction } from "@/lib/voice/import-tools";
 import { RECIPE_EDIT_TOOLS, executeRecipeEditTool } from "@/lib/voice/recipe-tools";
+import type { ImportVoiceActions, ImportVoiceBridge } from "@/lib/voice/import-tools";
+import { IMPORT_TOOLS, executeImportTool as runImportVoiceTool } from "@/lib/voice/import-tools";
 import { buildVideoDisplay } from "@/lib/recipe/video-display";
 import type { ExecuteToolFn } from "@/lib/voice/live-session";
 import type { RecipeExtraction } from "@/lib/schemas/recipe";
 
 const REVIEW_TOOL_GROUPS = [defineToolGroup(RECIPE_EDIT_TOOLS)];
+const IMPORT_TOOL_GROUPS = [defineToolGroup(IMPORT_TOOLS)];
 
 const HOME_SYSTEM_INSTRUCTION = [
   "Você é o assistente de voz do Recistep. Fale em português do Brasil, de forma curta e natural.",
@@ -55,6 +59,39 @@ function statusLabel(status: string): string {
     cancelled: "Cancelada",
   };
   return labels[status] ?? status;
+}
+
+const ACTIVE_IMPORT_STATUSES: string[] = [
+  "queued",
+  "processing",
+  "source_content_required",
+  "review_required",
+];
+
+const ACTIVE_IMPORT_STORAGE_PREFIX = "recistep:active-import:";
+
+function activeImportStorageKey(email: string | null): string {
+  return ACTIVE_IMPORT_STORAGE_PREFIX + (email?.trim().toLowerCase() || "anon");
+}
+
+function readStoredImportId(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value && /^[0-9a-f-]{36}$/i.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredImportId(key: string, id: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) window.localStorage.setItem(key, id);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Persisting the active import is best-effort; the UI still works without it.
+  }
 }
 
 export default function HomePage() {
@@ -114,6 +151,123 @@ export default function HomePage() {
     );
   }, []);
 
+  const voiceStartImport = useCallback(async (url: string) => {
+    if (!accessToken) return { ok: false, message: "Entre com Google para importar." };
+    setSourceUrl(url);
+    setFeedback(null);
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/v1/imports", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + accessToken,
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ source_url: url, locale: "pt-BR" }),
+      });
+      const body = await response.json() as { data?: ImportRecord; error?: { message?: string } };
+      if (!response.ok || !body.data?.id) {
+        const message = body.error?.message ?? "Não foi possível iniciar esta importação.";
+        setFeedback({ kind: response.status === 503 ? "info" : "error", message });
+        return { ok: false, message };
+      }
+      setActiveImportId(body.data.id);
+      setImportRecord(body.data);
+      setTranscript("");
+      setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
+      return { ok: true, message: "Importação registrada; o estado aparece na tela." };
+    } catch {
+      const message = "Não foi possível conectar ao servidor. Verifique sua conexão.";
+      setFeedback({ kind: "error", message });
+      return { ok: false, message };
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [accessToken]);
+
+  const voiceStartTranscript = useCallback(async (text: string) => {
+    if (!accessToken) return { ok: false, message: "Entre com Google para criar a receita." };
+    setIsExtractingVoiceRecipe(true);
+    setVoiceRecipeMessage(null);
+    setVoiceSavedRecipeId(null);
+    try {
+      const response = await fetch("/api/v1/recipes/extract-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+        body: JSON.stringify({ transcript: text, locale: "pt-BR" }),
+      });
+      const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
+      if (!response.ok || !body.data) {
+        const message = body.error?.message ?? "Não foi possível transformar a fala em receita.";
+        setVoiceRecipeMessage(message);
+        return { ok: false, message };
+      }
+      setVoiceRecipeDraft(body.data);
+      setVoiceRecipeMessage("Rascunho criado. Revise ingredientes, quantidades e etapas antes de salvar.");
+      return { ok: true, message: "Rascunho criado na tela; o usuário pode revisar e salvar em Minhas receitas." };
+    } catch {
+      const message = "Falha de conexão ao gerar a receita. O texto continua disponível para tentar novamente.";
+      setVoiceRecipeMessage(message);
+      return { ok: false, message };
+    } finally {
+      setIsExtractingVoiceRecipe(false);
+    }
+  }, [accessToken]);
+
+  const voiceRetryImport = useCallback(async () => {
+    const url = importRecord?.source_url ?? sourceUrl.trim();
+    if (!url) return { ok: false, message: "Não há um link anterior para tentar de novo." };
+    return voiceStartImport(url);
+  }, [importRecord?.source_url, sourceUrl, voiceStartImport]);
+
+  const voiceDismissImport = useCallback(() => {
+    setActiveImportId(null);
+    setImportRecord(null);
+    setReviewDraft(null);
+    setStreamDraft(null);
+    setTranscript("");
+    setFeedback(null);
+  }, []);
+
+  const voiceOpenReview = useCallback(() => {
+    if (importRecord?.recipe_draft) setReviewDraft(importRecord.recipe_draft);
+  }, [importRecord?.recipe_draft]);
+
+  const importBridge = useMemo<ImportVoiceBridge>(() => ({
+    state: {
+      activeImportId,
+      status: importRecord?.status ?? null,
+      sourceUrl: importRecord?.source_url ?? (sourceUrl.trim() || null),
+      hasDraft: Boolean(importRecord?.recipe_draft),
+    },
+    actions: {
+      startImportByUrl: voiceStartImport,
+      startImportFromTranscript: voiceStartTranscript,
+      retryImport: voiceRetryImport,
+      dismissImport: voiceDismissImport,
+      openReview: voiceOpenReview,
+    } satisfies ImportVoiceActions,
+  }), [activeImportId, importRecord, sourceUrl, voiceStartImport, voiceStartTranscript, voiceRetryImport, voiceDismissImport, voiceOpenReview]);
+
+  const importBridgeRef = useRef(importBridge);
+  useEffect(() => { importBridgeRef.current = importBridge; }, [importBridge]);
+
+  const executeImportTool = useCallback<ExecuteToolFn>(async (name, args, setActionLabel) => {
+    const current = importBridgeRef.current;
+    if (!current) return { success: false, error: "Estado de importação indisponível." };
+    return runImportVoiceTool(current, name, args, setActionLabel);
+  }, []);
+
+  const importSystemInstruction = useMemo(
+    () => buildImportSystemInstruction({
+      status: importRecord?.status ?? null,
+      hasDraft: Boolean(importRecord?.recipe_draft),
+      sourceUrl: importRecord?.source_url ?? null,
+    }),
+    [importRecord?.status, importRecord?.recipe_draft, importRecord?.source_url],
+  );
+
   const voiceContext = useMemo<VoiceContextConfig>(() => (
     reviewDraft
       ? {
@@ -126,13 +280,13 @@ export default function HomePage() {
         }
       : {
           key: "home",
-          contextLabel: "Assistente de cozinha",
-          systemInstruction: HOME_SYSTEM_INSTRUCTION,
-          toolGroups: [],
-          executeTool: executeReviewTool,
+          contextLabel: "Importar receita",
+          systemInstruction: importSystemInstruction,
+          toolGroups: IMPORT_TOOL_GROUPS,
+          executeTool: executeImportTool,
           thinkingLevel: "low",
         }
-  ), [reviewDraft, reviewSystemInstruction, executeReviewTool]);
+  ), [reviewDraft, reviewSystemInstruction, executeReviewTool, importSystemInstruction, executeImportTool]);
 
   useVoiceAssistantContext(voiceContext);
 
@@ -170,6 +324,73 @@ export default function HomePage() {
       window.clearInterval(timer);
     };
   }, [supabase, accessToken, activeImportId, importRecord?.status]);
+
+  const storageKey = useMemo(() => activeImportStorageKey(signedInEmail), [signedInEmail]);
+  const rehydratedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!activeImportId) return;
+    writeStoredImportId(storageKey, activeImportId);
+  }, [activeImportId, storageKey]);
+
+  useEffect(() => {
+    if (!importRecord) return;
+    if (!ACTIVE_IMPORT_STATUSES.includes(importRecord.status)) {
+      writeStoredImportId(storageKey, null);
+    }
+  }, [importRecord?.status, storageKey]);
+
+  useEffect(() => {
+    if (!supabase || !accessToken) return;
+    if (rehydratedForRef.current === storageKey) return;
+    rehydratedForRef.current = storageKey;
+
+    let cancelled = false;
+
+    const applyRecord = (record: ImportRecord | null | undefined): boolean => {
+      if (!record || cancelled || !ACTIVE_IMPORT_STATUSES.includes(record.status)) return false;
+      setActiveImportId(record.id);
+      setImportRecord(record);
+      writeStoredImportId(storageKey, record.id);
+      return true;
+    };
+
+    void (async () => {
+      const storedId = readStoredImportId(storageKey);
+      if (storedId) {
+        try {
+          const response = await fetch("/api/v1/imports/" + storedId, {
+            headers: { Authorization: "Bearer " + accessToken },
+            cache: "no-store",
+          });
+          if (response.ok) {
+            const body = await response.json() as { data?: ImportRecord };
+            if (applyRecord(body.data)) return;
+          }
+        } catch {
+          // Fall through to the server-side list below.
+        }
+        if (!cancelled) writeStoredImportId(storageKey, null);
+      }
+
+      try {
+        const response = await fetch("/api/v1/imports", {
+          headers: { Authorization: "Bearer " + accessToken },
+          cache: "no-store",
+        });
+        if (!response.ok || cancelled) return;
+        const body = await response.json() as { data?: ImportRecord[] };
+        const candidate = body.data?.find((record) => ACTIVE_IMPORT_STATUSES.includes(record.status));
+        applyRecord(candidate);
+      } catch {
+        // Rehydration is best-effort; the user can start a new import normally.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, accessToken, storageKey]);
 
   useEffect(() => {
     if (!supabase || !accessToken || !activeImportId ||
