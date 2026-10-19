@@ -7,6 +7,8 @@ const recipe: RecipeExtraction = {
   description: null,
   source_language: "pt-BR",
   servings: 4,
+  cover_image_url: null,
+  utensils: [],
   timings: { prep_seconds: null, cook_seconds: null, total_seconds: null },
   ingredients: [
     { name: "Cenoura", quantity: 2, unit: "un", notes: null, source_evidence: null, confidence: 0.9 },
