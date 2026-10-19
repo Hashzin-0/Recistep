@@ -134,7 +134,8 @@ Copie `.env.example` para `.env.local` e configure valores reais. As variáveis 
 
 A extração de receitas e a geração de fluxograma tentam primeiro os modelos Gemini configurados e, somente quando **todos** falham, recorrem ao OpenRouter. Não há fallback silencioso: cada tentativa é registrada (`[ai-provider] ...`) com provedor e modelo, e o fallback é explicitamente habilitado por ambiente.
 
-- `GEMINI_MODELS` (opcional): lista ordenada de modelos Gemini separada por vírgulas. Se definida, cada modelo é tentado em sequência; se ausente, usa-se apenas `GEMINI_MODEL` (ou o padrão embutido).
+- `GEMINI_MODELS` (opcional): lista ordenada de modelos Gemini separada por vírgulas. Se definida, cada modelo é tentado em sequência. Se ausente, usa-se `GEMINI_MODEL` ou, quando este também não está definido, a lista padrão embutida — todos modelos multimodais `generateContent` do catálogo oficial (https://ai.google.dev/gemini-api/docs/models), do mais capaz ao mais econômico: `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` e o alias `gemini-flash-latest`.
+- `GEMINI_MODEL` (opcional): sobrescreve a lista padrão com um único modelo.
 - `OPENROUTER_API_KEY` (opcional, server-only): habilita o fallback. Sem ela, o último erro do Gemini é propagado como antes.
 - `OPENROUTER_MODEL` (opcional): padrão `openrouter/free`, o roteador gratuito do OpenRouter que escolhe automaticamente um modelo free compatível com as modalidades de entrada do pedido (texto/imagem/vídeo/áudio) e com saída estruturada. Não é feita consulta extra à API de modelos: o próprio roteador aplica o filtro de capacidade.
 

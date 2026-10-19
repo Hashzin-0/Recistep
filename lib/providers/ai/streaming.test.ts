@@ -147,6 +147,7 @@ describe("streamRecipeFromTranscript", () => {
 
   it("throws when the final accumulation fails schema validation", async () => {
     vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODELS", "gemini-test");
     const invalid = { title: "Sem receita" };
     const events = [
       `data: ${JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(invalid) }] } }] })}\n\n`,

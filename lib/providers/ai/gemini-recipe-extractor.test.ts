@@ -104,6 +104,7 @@ describe("extractRecipeFromTranscript", () => {
 
   it("rejects malformed model output rather than returning an unvalidated recipe", async () => {
     vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODELS", "gemini-test");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       candidates: [{
         finishReason: "STOP",

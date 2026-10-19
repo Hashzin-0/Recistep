@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveGeminiModels } from "./gemini-models";
+import { DEFAULT_GEMINI_MODELS, resolveGeminiModels } from "./gemini-models";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -13,10 +13,10 @@ describe("resolveGeminiModels", () => {
     expect(resolveGeminiModels()).toEqual(["gemini-custom"]);
   });
 
-  it("falls back to the built-in default model", () => {
+  it("falls back to the built-in default model list", () => {
     vi.stubEnv("GEMINI_MODEL", "");
     vi.stubEnv("GEMINI_MODELS", "");
-    expect(resolveGeminiModels()).toEqual(["gemini-3.8-flash"]);
+    expect(resolveGeminiModels()).toEqual([...DEFAULT_GEMINI_MODELS]);
   });
 
   it("parses, trims, and deduplicates the ordered list", () => {
