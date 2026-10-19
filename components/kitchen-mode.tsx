@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createRunningTimer, formatDuration, pauseTimer, remainingTimerSeconds, resumeTimer, type CookingTimerState } from "@/lib/recipe/cooking-session";
+import { formatDuration, remainingTimerSeconds, type CookingTimerState } from "@/lib/recipe/cooking-session";
+import { timersForRecipe } from "@/lib/recipe/timer-store";
+import { useTimers } from "@/lib/client/use-timers";
+import { useAuth } from "@/components/auth-provider";
 import { useVoiceAssistantContext, useVoiceAssistantControls, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { VideoDisplay } from "@/components/video-display";
 import { defineToolGroup } from "@/lib/voice/function-tool";
@@ -11,6 +14,7 @@ import {
   executeKitchenTool,
   withToggledIngredient,
   withToggledStep,
+  type KitchenSession,
   type KitchenVoiceBridge,
 } from "@/lib/voice/recipe-tools";
 import { VIDEO_TOOLS, executeVideoTool, type VideoVoiceBridge } from "@/lib/voice/video-tools";
@@ -21,16 +25,17 @@ import type { ExecuteToolFn } from "@/lib/voice/live-session";
 type Ingredient = { name: string; quantity: number | null; unit: string | null; notes: string | null };
 type Utensil = { name: string; quantity: string | null; purpose: string | null };
 type Step = { position: number; instruction: string; duration_seconds: number | null; temperature_value: number | null; temperature_unit: "C" | "F" | null; video_start_seconds?: number | null; video_end_seconds?: number | null };
-type SessionState = { completedSteps: number[]; checkedIngredients: number[]; currentStep: number; timers: CookingTimerState[]; activeTimerId: string | null };
-const emptySession: SessionState = { completedSteps: [], checkedIngredients: [], currentStep: 0, timers: [], activeTimerId: null };
+type SessionState = { completedSteps: number[]; checkedIngredients: number[]; currentStep: number; activeTimerId: string | null };
+type ParsedSession = { session: SessionState; legacyTimers: CookingTimerState[] };
+const emptySession: SessionState = { completedSteps: [], checkedIngredients: [], currentStep: 0, activeTimerId: null };
 
 const VIDEO_TOOL_NAMES = new Set(VIDEO_TOOLS.map((tool) => tool.name));
 const KITCHEN_TOOL_GROUP = defineToolGroup(KITCHEN_TOOLS);
 const VIDEO_TOOL_GROUP = defineToolGroup(VIDEO_TOOLS);
 
-function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]): SessionState {
-  if (!value || typeof value !== "object") return emptySession;
-  const candidate = value as Partial<SessionState> & { timer?: unknown };
+function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]): ParsedSession {
+  if (!value || typeof value !== "object") return { session: emptySession, legacyTimers: [] };
+  const candidate = value as Partial<SessionState> & { timer?: unknown; timers?: unknown };
   const positions = new Set(steps.map((step) => step.position));
   const indexes = new Set(ingredients.map((_, index) => index));
   const completedSteps = Array.isArray(candidate.completedSteps) ? candidate.completedSteps.filter((n): n is number => Number.isInteger(n) && positions.has(n)) : [];
@@ -46,13 +51,15 @@ function validSession(value: unknown, steps: Step[], ingredients: Ingredient[]):
   };
   // Migra o formato antigo (um único timer) sem perder o preparo salvo.
   const rawTimers: unknown[] = Array.isArray(candidate.timers) ? candidate.timers : candidate.timer ? [candidate.timer] : [];
-  const timers = rawTimers.filter(isValidTimer).map((timer, index) => ({
+  const legacyTimers = rawTimers.filter(isValidTimer).map((timer, index) => ({
     ...timer,
     id: typeof timer.id === "string" && timer.id ? timer.id : `timer-migrado-${timer.stepPosition}-${index}`,
   }));
-  const requestedActive = typeof candidate.activeTimerId === "string" ? candidate.activeTimerId : timers[0]?.id ?? null;
-  const activeTimerId = timers.some((timer) => timer.id === requestedActive) ? requestedActive : timers[0]?.id ?? null;
-  return { completedSteps: [...new Set(completedSteps)], checkedIngredients: [...new Set(checkedIngredients)], currentStep, timers, activeTimerId };
+  const requestedActive = typeof candidate.activeTimerId === "string" ? candidate.activeTimerId : legacyTimers[0]?.id ?? null;
+  return {
+    session: { completedSteps: [...new Set(completedSteps)], checkedIngredients: [...new Set(checkedIngredients)], currentStep, activeTimerId: requestedActive },
+    legacyTimers,
+  };
 }
 
 function quantityLabel(ingredient: Ingredient): string {
@@ -66,6 +73,16 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
 }) {
   const orderedSteps = useMemo(() => [...steps].sort((a, b) => a.position - b.position), [steps]);
   const recipeUtensils = useMemo(() => utensils ?? [], [utensils]);
+  const { signedInEmail } = useAuth();
+  const {
+    timers,
+    addTimer,
+    addTimers,
+    pauseOrResumeTimer: toggleStoredTimer,
+    removeTimer: removeStoredTimer,
+    removeTimers,
+  } = useTimers(signedInEmail);
+  const recipeTimers = useMemo(() => timersForRecipe(timers, recipeId), [timers, recipeId]);
   const [session, setSession] = useState<SessionState>(emptySession);
   const [hydrated, setHydrated] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -76,20 +93,37 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   const voiceControls = useVoiceAssistantControls();
   const videoControllerRef = useRef<VideoController | null>(null);
   const activeStep = orderedSteps.find((step) => step.position === session.currentStep) ?? orderedSteps[0];
-  const activeTimer = session.timers.find((timer) => timer.id === session.activeTimerId) ?? session.timers[0] ?? null;
+  const activeTimer = recipeTimers.find((timer) => timer.id === session.activeTimerId) ?? recipeTimers[0] ?? null;
   const activeTimerStep = activeTimer ? orderedSteps.find((step) => step.position === activeTimer.stepPosition) : null;
   const timerRemaining = activeTimer ? remainingTimerSeconds(activeTimer, now) : null;
 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("recistep:cooking:" + recipeId);
-      if (saved) setSession(validSession(JSON.parse(saved), steps, ingredients));
+      if (saved) {
+        const parsed = validSession(JSON.parse(saved), steps, ingredients);
+        setSession(parsed.session);
+        if (parsed.legacyTimers.length > 0) {
+          const createdAt = Date.now();
+          addTimers(parsed.legacyTimers.map((timer) => {
+            const stepIndex = orderedSteps.findIndex((step) => step.position === timer.stepPosition);
+            return {
+              ...timer,
+              recipeId,
+              recipeTitle: title,
+              stepNumber: stepIndex >= 0 ? stepIndex + 1 : null,
+              stepInstruction: stepIndex >= 0 ? orderedSteps[stepIndex].instruction : null,
+              createdAt,
+            };
+          }));
+        }
+      }
     } catch {
       setSession(emptySession);
     } finally {
       setHydrated(true);
     }
-  }, [recipeId, steps, ingredients]);
+  }, [recipeId, steps, ingredients, orderedSteps, title, addTimers]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -98,10 +132,10 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   }, [hydrated, recipeId, session]);
 
   useEffect(() => {
-    if (!session.timers.some((timer) => timer.endsAt !== null)) return;
+    if (!recipeTimers.some((timer) => timer.endsAt !== null)) return;
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
-  }, [session.timers]);
+  }, [recipeTimers]);
 
   useEffect(() => {
     const updateOnline = () => setOnline(navigator.onLine);
@@ -118,6 +152,17 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   }, []);
 
   function updateSession(patch: Partial<SessionState>) { setSession((previous) => ({ ...previous, ...patch })); }
+  function bridgeSession(current: SessionState): KitchenSession {
+    return { ...current, timers: recipeTimers };
+  }
+  function toSession(next: KitchenSession): SessionState {
+    return {
+      completedSteps: next.completedSteps,
+      checkedIngredients: next.checkedIngredients,
+      currentStep: next.currentStep,
+      activeTimerId: next.activeTimerId,
+    };
+  }
   function positionVideoForStep(position: number) {
     const controller = videoControllerRef.current;
     if (!controller?.getState().controllable) return;
@@ -127,12 +172,12 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   }
   function chooseStep(position: number) { updateSession({ currentStep: position }); positionVideoForStep(position); setNotice(""); }
   function toggleStep(position: number) {
-    const next = withToggledStep(session, orderedSteps, position);
-    setSession(next);
+    const next = withToggledStep(bridgeSession(session), orderedSteps, position);
+    setSession(toSession(next));
     positionVideoForStep(next.currentStep);
   }
   function toggleIngredient(index: number) {
-    setSession((previous) => withToggledIngredient(previous, index));
+    setSession((previous) => toSession(withToggledIngredient(bridgeSession(previous), index)));
   }
   function startTimer() {
     if (!activeStep) return;
@@ -141,34 +186,49 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
   }
   function startTimerForStep(stepPosition: number, duration: number): string {
     const nowMs = Date.now();
-    const id = `timer-${nowMs}-${stepPosition}-${session.timers.length + 1}`;
+    const stepIndex = orderedSteps.findIndex((step) => step.position === stepPosition);
     try {
-      const timer = { ...createRunningTimer(stepPosition, duration, nowMs), id };
-      setSession((previous) => ({ ...previous, timers: [...previous.timers, timer], activeTimerId: id }));
+      const timer = addTimer({
+        durationSeconds: duration,
+        recipeId,
+        recipeTitle: title,
+        stepPosition,
+        stepNumber: stepIndex >= 0 ? stepIndex + 1 : null,
+        stepInstruction: stepIndex >= 0 ? orderedSteps[stepIndex].instruction : null,
+      });
+      setSession((previous) => ({ ...previous, activeTimerId: timer.id }));
       setNow(nowMs);
       setNotice("");
-      return id;
+      return timer.id;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Duração inválida.");
       return "";
     }
   }
   function pauseOrResumeTimer(nowMs: number = Date.now(), timerId: string = session.activeTimerId ?? "") {
-    const timer = session.timers.find((item) => item.id === timerId);
-    if (!timer) return;
-    const updated = timer.endsAt === null ? resumeTimer(timer, nowMs) : pauseTimer(timer, nowMs);
-    setSession((previous) => ({ ...previous, timers: previous.timers.map((item) => item.id === timerId ? updated : item) }));
+    const targetId = timerId || recipeTimers[0]?.id || "";
+    if (!targetId) return;
+    toggleStoredTimer(targetId, nowMs);
     setNow(nowMs);
   }
   function resetTimer(timerId: string = session.activeTimerId ?? "") {
-    setSession((previous) => {
-      const timers = previous.timers.filter((timer) => timer.id !== timerId);
-      const activeTimerId = previous.activeTimerId === timerId ? timers[0]?.id ?? null : previous.activeTimerId;
-      return { ...previous, timers, activeTimerId };
-    });
+    const targetId = timerId || recipeTimers[0]?.id || "";
+    if (!targetId) return;
+    removeStoredTimer(targetId);
+    setSession((previous) => ({
+      ...previous,
+      activeTimerId: previous.activeTimerId === targetId
+        ? recipeTimers.find((timer) => timer.id !== targetId)?.id ?? null
+        : previous.activeTimerId,
+    }));
     setNow(Date.now());
   }
   function selectTimer(timerId: string) { updateSession({ activeTimerId: timerId }); setNow(Date.now()); }
+  function restartSession() {
+    removeTimers(recipeTimers.map((timer) => timer.id));
+    setSession(emptySession);
+    setNotice("Progresso reiniciado neste dispositivo.");
+  }
   async function installApp() {
     if (!installPrompt) return;
     const prompt = installPrompt as Event & { prompt?: () => Promise<void>; userChoice?: Promise<{ outcome: string }> };
@@ -198,7 +258,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
     servings: servings ?? null,
     ingredients,
     steps: orderedSteps,
-    session,
+    session: { ...bridgeSession(session), activeTimerId: activeTimer?.id ?? null },
     timerRemainingSeconds: timerRemaining,
     now,
     actions: {
@@ -261,7 +321,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
 
   const announcedTimersRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    for (const timer of session.timers) {
+    for (const timer of recipeTimers) {
       const expired = remainingTimerSeconds(timer, now) === 0;
       if (!expired) { announcedTimersRef.current.delete(timer.id); continue; }
       if (announcedTimersRef.current.has(timer.id)) continue;
@@ -273,9 +333,9 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
         "Avise o usuário em voz alta, identifique qual timer terminou e pergunte se quer fazer algo com ele.",
       );
     }
-    const existing = new Set(session.timers.map((timer) => timer.id));
+    const existing = new Set(recipeTimers.map((timer) => timer.id));
     for (const id of announcedTimersRef.current) if (!existing.has(id)) announcedTimersRef.current.delete(id);
-  }, [session.timers, now, orderedSteps]);
+  }, [recipeTimers, now, orderedSteps]);
 
   return <section className="kitchen-mode" aria-labelledby="kitchen-mode-title">
     <div className="kitchen-heading">
@@ -308,9 +368,9 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
       <aside className="kitchen-side-column">
         {videoDisplay && <VideoDisplay ref={videoControllerRef} display={videoDisplay} title={title} className="kitchen-video" />}
         <section className="kitchen-panel" aria-label="Temporizadores da receita">
-          <div className="kitchen-section-title"><h4>Temporizadores</h4><span>{session.timers.length} na sessão</span></div>
-          {session.timers.length > 0 && <div className="kitchen-timer-list">
-            {session.timers.map((timer, index) => {
+          <div className="kitchen-section-title"><h4>Temporizadores</h4><span>{recipeTimers.length} na sessão</span></div>
+          {recipeTimers.length > 0 && <div className="kitchen-timer-list">
+            {recipeTimers.map((timer, index) => {
               const stepIndex = orderedSteps.findIndex((step) => step.position === timer.stepPosition);
               const remaining = remainingTimerSeconds(timer, now);
               const selected = timer.id === activeTimer?.id;
@@ -354,7 +414,7 @@ export function KitchenMode({ recipeId, title, description, servings, ingredient
           <div className="kitchen-ingredient-list">{ingredients.map((ingredient, index) => <label key={index} className={session.checkedIngredients.includes(index) ? "checked" : ""}><input type="checkbox" checked={session.checkedIngredients.includes(index)} onChange={() => toggleIngredient(index)} /><span><strong>{ingredient.name}</strong><small>{quantityLabel(ingredient)}{ingredient.notes ? " · " + ingredient.notes : ""}</small></span></label>)}</div>
         </section>
         <div className="kitchen-footer-actions">
-          <button type="button" className="secondary-button" onClick={() => { setSession(emptySession); setNotice("Progresso reiniciado neste dispositivo."); }}>Reiniciar preparo</button>
+          <button type="button" className="secondary-button" onClick={restartSession}>Reiniciar preparo</button>
           {installPrompt && <button type="button" onClick={() => void installApp()}>Instalar Recistep</button>}
         </div>
         {notice && <p className="kitchen-notice" role="status">{notice}</p>}

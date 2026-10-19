@@ -8,6 +8,7 @@ import { ViewTransition } from "@/components/view-transition";
 const TABS = [
   { href: "/", label: "Receitas" },
   { href: "/minhas-receitas", label: "Minhas receitas" },
+  { href: "/temporizadores", label: "Temporizadores" },
   { href: "/lista-de-compras", label: "Lista de compras" },
 ];
 

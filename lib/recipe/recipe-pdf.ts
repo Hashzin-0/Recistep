@@ -3,9 +3,18 @@ import { QRCode } from "@/lib/qr/qrcode";
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
-const MARGIN = 50;
-const BOTTOM = 50;
+const MARGIN = 48;
+const BOTTOM = 46;
 const TEXT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+
+const COLOR_PRIMARY = "#E07A28";
+const COLOR_TEXT = "#333333";
+const COLOR_MUTED = "#666666";
+const COLOR_LIGHT = "#EEEEEE";
+const COLOR_DOTTED = "#E5E5E5";
+const COLOR_FOOTER = "#A0A0A0";
+const COLOR_ING_BG = "#FFF9F5";
+const COLOR_OBS = "#888888";
 
 const WIN_ANSI: Record<number, number> = {
   0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85,
@@ -30,8 +39,31 @@ function hexEncode(text: string): string {
   return hex;
 }
 
+export function cleanPdfText(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .replace(/\$\$?/g, "")
+    .replace(/\^\{?\\?circ\}?/gi, "°")
+    .replace(/\\circ/gi, "°")
+    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2")
+    .replace(/\\times/gi, "×")
+    .replace(/\\[a-zA-Z]+/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/[\u2610\u2611\u25a1\u25a0]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanIngredientNotes(value: string | null | undefined): string {
+  const notes = cleanPdfText(value);
+  if (!notes) return "";
+  if (notes.length > 48) return "";
+  if (/(modo de preparo|indicado como|conforme|ver instru|utilizad[ao]s? para untar|acrescentad[ao])/i.test(notes)) return "";
+  return notes;
+}
+
 function wrapText(text: string, maxChars: number): string[] {
-  const words = text.trim().split(/\s+/);
+  const words = text.trim().split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
@@ -59,11 +91,6 @@ function formatSeconds(value: number | null | undefined): string | null {
   return `${hours} hr ${minutes} min`;
 }
 
-function charLimit(size: number): number {
-  const avg = size * 0.5;
-  return Math.max(20, Math.floor(TEXT_WIDTH / avg));
-}
-
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const value = hex.replace("#", "");
   const num = parseInt(value, 16);
@@ -74,14 +101,14 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
-const COLOR_PRIMARY = "#E07A28";
-const COLOR_TEXT = "#333333";
-const COLOR_MUTED = "#666666";
-const COLOR_LIGHT = "#EEEEEE";
-const COLOR_DOTTED = "#E5E5E5";
-const COLOR_FOOTER = "#A0A0A0";
-const COLOR_ING_BG = "#FFF9F5";
-const COLOR_OBS = "#888888";
+function rgbOp(hex: string): string {
+  const c = hexToRgb(hex);
+  return `${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg`;
+}
+
+function charsForWidth(width: number, size: number): number {
+  return Math.max(12, Math.floor(width / Math.max(1, size * 0.5)));
+}
 
 type Page = { ops: string[] };
 
@@ -92,9 +119,14 @@ function newPage(): Page {
 class Layout {
   pages: Page[] = [newPage()];
   y = PAGE_HEIGHT - MARGIN;
+  overflow = false;
 
   get page(): Page {
     return this.pages[this.pages.length - 1];
+  }
+
+  trackOverflow() {
+    if (this.y < BOTTOM) this.overflow = true;
   }
 
   ensureSpace(height: number) {
@@ -105,8 +137,7 @@ class Layout {
   }
 
   setFill(hex: string) {
-    const c = hexToRgb(hex);
-    this.page.ops.push(`${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg`);
+    this.page.ops.push(rgbOp(hex));
   }
 
   setStroke(hex: string) {
@@ -115,21 +146,14 @@ class Layout {
   }
 
   textLine(text: string, size: number, font = "F1", indent = 0, color = COLOR_TEXT) {
-    this.ensureSpace(size + 6);
-    const x = MARGIN + indent;
+    this.ensureSpace(size + 5);
     this.setFill(color);
-    this.page.ops.push(`BT /${font} ${size} Tf ${x} ${this.y} Td <${hexEncode(text)}> Tj ET`);
-    this.y -= size + 4;
+    this.page.ops.push(`BT /${font} ${size.toFixed(2)} Tf ${(MARGIN + indent).toFixed(2)} ${this.y.toFixed(2)} Td <${hexEncode(text)}> Tj ET`);
+    this.y -= size + 3;
+    this.trackOverflow();
   }
 
-  paragraph(text: string, size: number, font = "F1", indent = 0, maxCharsOverride?: number, color = COLOR_TEXT) {
-    const limit = maxCharsOverride ?? charLimit(size);
-    for (const line of wrapText(text, limit)) {
-      this.textLine(line, size, font, indent, color);
-    }
-  }
-
-  gap(size = 6) {
+  gap(size = 5) {
     this.y -= size;
     if (this.y < BOTTOM) {
       this.pages.push(newPage());
@@ -137,17 +161,17 @@ class Layout {
     }
   }
 
-  heading(text: string, size: number, color = COLOR_PRIMARY) {
-    this.gap(4);
-    this.textLine(text, size, "F2", 0, color);
-    this.gap(2);
+  heading(text: string, size: number) {
+    this.gap(3);
+    this.textLine(text, size, "F2", 0, COLOR_PRIMARY);
+    this.gap(1);
   }
 
   hLine(x1: number, x2: number, y: number, width: number, color: string, dash?: string) {
     this.setStroke(color);
     this.page.ops.push(`${width} w`);
     if (dash) this.page.ops.push(dash);
-    this.page.ops.push(`${x1} ${y} m ${x2} ${y} l S`);
+    this.page.ops.push(`${x1.toFixed(2)} ${y.toFixed(2)} m ${x2.toFixed(2)} ${y.toFixed(2)} l S`);
     if (dash) this.page.ops.push("[] 0 d");
   }
 
@@ -161,18 +185,18 @@ class Layout {
       const k = 0.5522847498 * r;
       const x2 = x + w;
       const y2 = yBottom + h;
-      this.page.ops.push(`${x + r} ${yBottom} m`);
-      this.page.ops.push(`${x2 - r} ${yBottom} l`);
-      this.page.ops.push(`${x2 - r + k} ${yBottom} ${x2} ${yBottom + r - k} ${x2} ${yBottom + r} c`);
-      this.page.ops.push(`${x2} ${y2 - r} l`);
-      this.page.ops.push(`${x2} ${y2 - r + k} ${x2 - r + k} ${y2} ${x2 - r} ${y2} c`);
-      this.page.ops.push(`${x + r} ${y2} l`);
-      this.page.ops.push(`${x + r - k} ${y2} ${x} ${y2 - r + k} ${x} ${y2 - r} c`);
-      this.page.ops.push(`${x} ${yBottom + r} l`);
-      this.page.ops.push(`${x} ${yBottom + r - k} ${x + r - k} ${yBottom} ${x + r} ${yBottom} c`);
+      this.page.ops.push(`${(x + r).toFixed(2)} ${yBottom.toFixed(2)} m`);
+      this.page.ops.push(`${(x2 - r).toFixed(2)} ${yBottom.toFixed(2)} l`);
+      this.page.ops.push(`${(x2 - r + k).toFixed(2)} ${yBottom.toFixed(2)} ${x2.toFixed(2)} ${(yBottom + r - k).toFixed(2)} ${x2.toFixed(2)} ${(yBottom + r).toFixed(2)} c`);
+      this.page.ops.push(`${x2.toFixed(2)} ${(y2 - r).toFixed(2)} l`);
+      this.page.ops.push(`${x2.toFixed(2)} ${(y2 - r + k).toFixed(2)} ${(x2 - r + k).toFixed(2)} ${y2.toFixed(2)} ${(x2 - r).toFixed(2)} ${y2.toFixed(2)} c`);
+      this.page.ops.push(`${(x + r).toFixed(2)} ${y2.toFixed(2)} l`);
+      this.page.ops.push(`${(x + r - k).toFixed(2)} ${y2.toFixed(2)} ${x.toFixed(2)} ${(y2 - r + k).toFixed(2)} ${x.toFixed(2)} ${(y2 - r).toFixed(2)} c`);
+      this.page.ops.push(`${x.toFixed(2)} ${(yBottom + r).toFixed(2)} l`);
+      this.page.ops.push(`${x.toFixed(2)} ${(yBottom + r - k).toFixed(2)} ${(x + r - k).toFixed(2)} ${yBottom.toFixed(2)} ${(x + r).toFixed(2)} ${yBottom.toFixed(2)} c`);
       this.page.ops.push("h");
     } else {
-      this.page.ops.push(`${x} ${yBottom} ${w} ${h} re`);
+      this.page.ops.push(`${x.toFixed(2)} ${yBottom.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re`);
     }
     if (fill && stroke) this.page.ops.push("B");
     else if (fill) this.page.ops.push("f");
@@ -184,11 +208,11 @@ class Layout {
     this.page.ops.push("q");
     this.setFill(fill);
     const k = 0.5522847498 * r;
-    this.page.ops.push(`${cx + r} ${cy} m`);
-    this.page.ops.push(`${cx + r} ${cy + k} ${cx + k} ${cy + r} ${cx} ${cy + r} c`);
-    this.page.ops.push(`${cx - k} ${cy + r} ${cx - r} ${cy + k} ${cx - r} ${cy} c`);
-    this.page.ops.push(`${cx - r} ${cy - k} ${cx - k} ${cy - r} ${cx} ${cy - r} c`);
-    this.page.ops.push(`${cx + k} ${cy - r} ${cx + r} ${cy - k} ${cx + r} ${cy} c`);
+    this.page.ops.push(`${(cx + r).toFixed(2)} ${cy.toFixed(2)} m`);
+    this.page.ops.push(`${(cx + r).toFixed(2)} ${(cy + k).toFixed(2)} ${(cx + k).toFixed(2)} ${(cy + r).toFixed(2)} ${cx.toFixed(2)} ${(cy + r).toFixed(2)} c`);
+    this.page.ops.push(`${(cx - k).toFixed(2)} ${(cy + r).toFixed(2)} ${(cx - r).toFixed(2)} ${(cy + k).toFixed(2)} ${(cx - r).toFixed(2)} ${cy.toFixed(2)} c`);
+    this.page.ops.push(`${(cx - r).toFixed(2)} ${(cy - k).toFixed(2)} ${(cx - k).toFixed(2)} ${(cy - r).toFixed(2)} ${cx.toFixed(2)} ${(cy - r).toFixed(2)} c`);
+    this.page.ops.push(`${(cx + k).toFixed(2)} ${(cy - r).toFixed(2)} ${(cx + r).toFixed(2)} ${(cy - k).toFixed(2)} ${(cx + r).toFixed(2)} ${cy.toFixed(2)} c`);
     this.page.ops.push("h f Q");
   }
 
@@ -198,35 +222,43 @@ class Layout {
     const k = 0.5522847498 * r;
     const x2 = x + w;
     const y2 = yBottom + h;
-    this.page.ops.push(`${x + r} ${yBottom} m`);
-    this.page.ops.push(`${x2 - r} ${yBottom} l`);
-    this.page.ops.push(`${x2 - r + k} ${yBottom} ${x2} ${yBottom + r - k} ${x2} ${yBottom + r} c`);
-    this.page.ops.push(`${x2} ${y2 - r} l`);
-    this.page.ops.push(`${x2} ${y2 - r + k} ${x2 - r + k} ${y2} ${x2 - r} ${y2} c`);
-    this.page.ops.push(`${x + r} ${y2} l`);
-    this.page.ops.push(`${x + r - k} ${y2} ${x} ${y2 - r + k} ${x} ${y2 - r} c`);
-    this.page.ops.push(`${x} ${yBottom + r} l`);
-    this.page.ops.push(`${x} ${yBottom + r - k} ${x + r - k} ${yBottom} ${x + r} ${yBottom} c`);
+    this.page.ops.push(`${(x + r).toFixed(2)} ${yBottom.toFixed(2)} m`);
+    this.page.ops.push(`${(x2 - r).toFixed(2)} ${yBottom.toFixed(2)} l`);
+    this.page.ops.push(`${(x2 - r + k).toFixed(2)} ${yBottom.toFixed(2)} ${x2.toFixed(2)} ${(yBottom + r - k).toFixed(2)} ${x2.toFixed(2)} ${(yBottom + r).toFixed(2)} c`);
+    this.page.ops.push(`${x2.toFixed(2)} ${(y2 - r).toFixed(2)} l`);
+    this.page.ops.push(`${x2.toFixed(2)} ${(y2 - r + k).toFixed(2)} ${(x2 - r + k).toFixed(2)} ${y2.toFixed(2)} ${(x2 - r).toFixed(2)} ${y2.toFixed(2)} c`);
+    this.page.ops.push(`${(x + r).toFixed(2)} ${y2.toFixed(2)} l`);
+    this.page.ops.push(`${(x + r - k).toFixed(2)} ${y2.toFixed(2)} ${x.toFixed(2)} ${(y2 - r + k).toFixed(2)} ${x.toFixed(2)} ${(y2 - r).toFixed(2)} c`);
+    this.page.ops.push(`${x.toFixed(2)} ${(yBottom + r).toFixed(2)} l`);
+    this.page.ops.push(`${x.toFixed(2)} ${(yBottom + r - k).toFixed(2)} ${(x + r - k).toFixed(2)} ${yBottom.toFixed(2)} ${(x + r).toFixed(2)} ${yBottom.toFixed(2)} c`);
     this.page.ops.push("h W n");
     this.page.ops.push(imageOp);
     this.page.ops.push("Q");
   }
 }
 
-function buildQrOps(url: string, x: number, yBottom: number, size: number): string[] {
-  const qr = new QRCode(-1, 1); // error level L
-  qr.addData(url);
-  qr.make();
-  const count = qr.getModuleCount();
-  const moduleSize = size / count;
-  const ops: string[] = [];
-  ops.push("q");
-  ops.push("0 0 0 rg");
-  for (let row = 0; row < count; row++) {
-    for (let col = 0; col < count; col++) {
-      if (qr.isDark(row, col)) {
+type QrMatrix = { size: number; isDark: (row: number, col: number) => boolean };
+
+function buildQrMatrix(url: string): QrMatrix | null {
+  try {
+    const qr = new QRCode(-1, 1);
+    qr.addData(url);
+    qr.make();
+    const count = qr.getModuleCount();
+    return { size: count, isDark: (row, col) => qr.isDark(row, col) };
+  } catch {
+    return null;
+  }
+}
+
+function qrOps(matrix: QrMatrix, x: number, yBottom: number, size: number): string[] {
+  const moduleSize = size / matrix.size;
+  const ops: string[] = ["q", "0 0 0 rg"];
+  for (let row = 0; row < matrix.size; row++) {
+    for (let col = 0; col < matrix.size; col++) {
+      if (matrix.isDark(row, col)) {
         const px = x + col * moduleSize;
-        const py = yBottom + (count - 1 - row) * moduleSize;
+        const py = yBottom + (matrix.size - 1 - row) * moduleSize;
         ops.push(`${px.toFixed(2)} ${py.toFixed(2)} ${moduleSize.toFixed(2)} ${moduleSize.toFixed(2)} re`);
       }
     }
@@ -239,33 +271,46 @@ export type RecipePdfOptions = {
   coverImage?: { bytes: Uint8Array; width: number; height: number };
 };
 
-export function buildRecipePdf(data: RecipeApiData, options?: RecipePdfOptions): Uint8Array {
+type LayoutResult = { layout: Layout };
+
+function layoutRecipe(data: RecipeApiData, options: RecipePdfOptions | undefined, scale: number, qr: QrMatrix | null): LayoutResult {
   const recipe = data.recipe;
   const layout = new Layout();
+  const u = (value: number) => value * scale;
+  const fs = (value: number) => Math.max(7, value * scale);
 
   const cover = options?.coverImage;
-  const photoSize = 70;
+  const photoSize = u(66);
   const headerTop = layout.y;
   const photoX = MARGIN;
   const photoYBottom = headerTop - photoSize;
 
   if (cover && cover.width > 0 && cover.height > 0) {
-    const scale = Math.min(photoSize / cover.width, photoSize / cover.height);
-    const drawW = Math.max(1, Math.round(cover.width * scale));
-    const drawH = Math.max(1, Math.round(cover.height * scale));
+    const drawScale = Math.min(photoSize / cover.width, photoSize / cover.height);
+    const drawW = Math.max(1, Math.round(cover.width * drawScale));
+    const drawH = Math.max(1, Math.round(cover.height * drawScale));
     const offX = photoX + Math.round((photoSize - drawW) / 2);
     const offY = photoYBottom + Math.round((photoSize - drawH) / 2);
     const imageOp = `q ${drawW} 0 0 ${drawH} ${offX} ${offY} cm /Im1 Do Q`;
-    layout.clipImage(photoX, photoYBottom, photoSize, photoSize, 6, imageOp);
+    layout.clipImage(photoX, photoYBottom, photoSize, photoSize, u(5), imageOp);
   }
 
-  // title
-  const titleX = MARGIN + photoSize + 12;
-  layout.y = headerTop - 4;
-  // draw title manually at titleX
-  layout.page.ops.push(`BT /F2 24 Tf ${titleX} ${layout.y - 18} Td <${hexEncode(recipe.title || "Receita")}> Tj ET`);
-  // metadata below
-  const metaY = layout.y - 48;
+  const titleX = MARGIN + photoSize + u(11);
+  const titleText = cleanPdfText(recipe.title) || "Receita";
+  const qrSize = u(66);
+  const qrX = PAGE_WIDTH - MARGIN - qrSize;
+  const titleAvailable = qrX - titleX - u(10);
+  let titleSize = fs(22);
+  const estimatedTitleWidth = titleText.length * titleSize * 0.53;
+  if (estimatedTitleWidth > titleAvailable) {
+    titleSize = Math.max(fs(13), titleSize * (titleAvailable / estimatedTitleWidth));
+  }
+  const titleY = headerTop - u(18);
+  layout.setFill(COLOR_TEXT);
+  layout.page.ops.push(`BT /F2 ${titleSize.toFixed(2)} Tf ${titleX.toFixed(2)} ${titleY.toFixed(2)} Td <${hexEncode(titleText)}> Tj ET`);
+
+  const metaSize = fs(10);
+  const metaY = headerTop - u(47);
   const metaParts: { label: string; value: string }[] = [];
   if (recipe.servings !== null && recipe.servings !== undefined) metaParts.push({ label: "Servings:", value: String(recipe.servings) });
   const prep = formatSeconds(recipe.timings.prep_seconds);
@@ -276,212 +321,175 @@ export function buildRecipePdf(data: RecipeApiData, options?: RecipePdfOptions):
   if (total) metaParts.push({ label: "Total:", value: total });
 
   let mx = titleX;
-  const metaSize = 11;
   for (let i = 0; i < metaParts.length; i++) {
     const part = metaParts[i];
-    const labelHex = hexEncode(part.label + " ");
-    const valueHex = hexEncode(part.value);
-    const labelColor = hexToRgb(COLOR_PRIMARY);
-    layout.page.ops.push(`${labelColor.r.toFixed(3)} ${labelColor.g.toFixed(3)} ${labelColor.b.toFixed(3)} rg`);
-    layout.page.ops.push(`BT /F2 ${metaSize} Tf ${mx} ${metaY} Td <${hexEncode(part.label)}> Tj ET`);
-    // measure label width approx
-    const labelWidth = part.label.length * (metaSize * 0.55);
+    layout.page.ops.push(rgbOp(COLOR_PRIMARY));
+    layout.page.ops.push(`BT /F2 ${metaSize.toFixed(2)} Tf ${mx.toFixed(2)} ${metaY.toFixed(2)} Td <${hexEncode(part.label)}> Tj ET`);
+    const labelWidth = part.label.length * metaSize * 0.54;
     const valueX = mx + labelWidth + 2;
-    const valueColor = hexToRgb(COLOR_TEXT);
-    layout.page.ops.push(`${valueColor.r.toFixed(3)} ${valueColor.g.toFixed(3)} ${valueColor.b.toFixed(3)} rg`);
-    layout.page.ops.push(`BT /F1 ${metaSize} Tf ${valueX} ${metaY} Td <${hexEncode(part.value)}> Tj ET`);
-    const valueWidth = part.value.length * (metaSize * 0.55);
-    mx = valueX + valueWidth + 10;
+    layout.page.ops.push(rgbOp(COLOR_TEXT));
+    layout.page.ops.push(`BT /F1 ${metaSize.toFixed(2)} Tf ${valueX.toFixed(2)} ${metaY.toFixed(2)} Td <${hexEncode(part.value)}> Tj ET`);
+    const valueWidth = part.value.length * metaSize * 0.5;
+    mx = valueX + valueWidth + u(9);
     if (i < metaParts.length - 1) {
-      layout.page.ops.push(`BT /F1 ${metaSize} Tf ${mx - 6} ${metaY} Td <${hexEncode("|")}> Tj ET`);
+      layout.page.ops.push(rgbOp(COLOR_LIGHT));
+      layout.page.ops.push(`BT /F1 ${metaSize.toFixed(2)} Tf ${(mx - u(5)).toFixed(2)} ${metaY.toFixed(2)} Td <${hexEncode("|")}> Tj ET`);
     }
   }
-  // set color for labels orange
-  // Re-draw labels in orange by inserting color ops is complex; instead set fill before each label.
-  // The above used default fill; fix by redoing with color ops inserted.
-  // We'll instead clear and redo below using a cleaner approach:
-  // (remove previous label/value ops? too complex) -> instead set fill orange globally before labels.
-  // To keep simple, prepend color op at start of metadata ops is not possible. We'll leave as is but add color by
-  // re-emitting labels in orange on top.
-  for (const part of metaParts) {
-    // noop placeholder
-  }
 
-  // QR code top right
-  const qrSize = 70;
-  const qrX = PAGE_WIDTH - MARGIN - qrSize;
   const qrYBottom = headerTop - qrSize;
-  if (data.source_url) {
-    const qrOps = buildQrOps(data.source_url, qrX, qrYBottom, qrSize);
-    layout.page.ops.push(...qrOps);
-  }
+  if (qr) layout.page.ops.push(...qrOps(qr, qrX, qrYBottom, qrSize));
 
-  // orange separator
-  const sepY = photoYBottom - 15;
-  layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, sepY, 2, COLOR_PRIMARY);
-  layout.y = sepY - 18;
+  const sepY = photoYBottom - u(9);
+  layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, sepY, 1.8, COLOR_PRIMARY);
+  layout.y = sepY - u(15);
 
-  // set text color default
-  layout.setFill(COLOR_TEXT);
-
-  // Ingredients section
-  layout.heading("Ingredients", 18);
-  const ingStartY = layout.y;
-  // container background drawn after measuring? We'll draw background now with estimated height.
-  // Estimate: count items lines
   const groups = new Map<string, typeof recipe.ingredients>();
   for (const ingredient of recipe.ingredients) {
-    const section = (ingredient.section || "Ingredientes").trim() || "Ingredientes";
+    const section = cleanPdfText(ingredient.section) || "Ingredientes";
     const items = groups.get(section) ?? [];
     items.push(ingredient);
     groups.set(section, items);
   }
 
-  // compute block height
-  let blockHeight = 12; // padding
-  for (const [section, ingredients] of groups) {
-    if (groups.size > 1) blockHeight += 18; // subsection title
-    for (const ingredient of ingredients) {
-      const qty = ingredient.quantity_text
-        || (ingredient.quantity !== null ? `${ingredient.quantity}${ingredient.unit ? " " + ingredient.unit : ""}` : "");
-      const nameText = `${ingredient.name}${ingredient.notes ? " (" + ingredient.notes + ")" : ""}`;
-      const nameLimit = charLimit(10) - 16; // approx
-      const lines = wrapText(nameText, Math.max(20, nameLimit));
-      blockHeight += lines.length * 14 + 6;
-      blockHeight += 2; // divider
-    }
-    blockHeight += 6;
-  }
-  blockHeight += 12;
+  const ingItemFont = fs(9.6);
+  const ingLineHeight = u(12.6);
+  const ingSubFont = fs(12);
+  const ingSubHeight = u(15);
+  const ingPadX = u(13);
+  const ingPadTop = u(9);
+  const ingPadBottom = u(9);
+  const ingQtyCol = u(76);
+  const ingNameX = MARGIN + ingPadX + ingQtyCol;
+  const ingNameWidth = PAGE_WIDTH - MARGIN - u(12) - ingNameX;
+  const ingNameChars = charsForWidth(ingNameWidth, ingItemFont);
 
-  // draw background container
-  const containerX = MARGIN;
-  const containerW = TEXT_WIDTH;
+  function ingredientRenderInfo(ingredient: (typeof recipe.ingredients)[number]) {
+    const notes = cleanIngredientNotes(ingredient.notes);
+    const name = cleanPdfText(ingredient.name);
+    const nameLines = wrapText(name, ingNameChars);
+    const noteText = notes ? ` (${notes})` : "";
+    const lastLine = nameLines[nameLines.length - 1] ?? "";
+    const inlineNoteX = ingNameX + lastLine.length * ingItemFont * 0.5;
+    const noteWidth = noteText.length * ingItemFont * 0.5;
+    const rightEdge = PAGE_WIDTH - MARGIN - u(12);
+    const noteOnNewLine = Boolean(noteText) && inlineNoteX + noteWidth > rightEdge;
+    const lineCount = Math.max(1, nameLines.length + (noteOnNewLine ? 1 : 0));
+    return { notes, name, nameLines, noteText, inlineNoteX, noteOnNewLine, lineCount };
+  }
+
+  let blockHeight = ingPadTop + ingPadBottom;
+  for (const [, ingredients] of groups) {
+    if (groups.size > 1) blockHeight += ingSubHeight + u(2);
+    for (const ingredient of ingredients) {
+      blockHeight += ingredientRenderInfo(ingredient).lineCount * ingLineHeight + u(4);
+    }
+    blockHeight += u(3);
+  }
+
+  layout.gap(3);
+  layout.textLine("Ingredients", fs(16.5), "F2", 0, COLOR_PRIMARY);
+  layout.gap(2);
+
   const containerYBottom = layout.y - blockHeight;
-  layout.rect(containerX, containerYBottom, containerW, blockHeight, COLOR_ING_BG, null, 4, 1);
-  layout.y -= 12;
+  layout.rect(MARGIN, containerYBottom, TEXT_WIDTH, blockHeight, COLOR_ING_BG, null, u(4), 1);
+  layout.y -= ingPadTop;
 
   for (const [section, ingredients] of groups) {
     if (groups.size > 1) {
-      layout.textLine(section, 14, "F2", 12, COLOR_TEXT);
-      layout.gap(2);
+      layout.page.ops.push(rgbOp(COLOR_TEXT));
+      layout.page.ops.push(`BT /F2 ${ingSubFont.toFixed(2)} Tf ${(MARGIN + ingPadX).toFixed(2)} ${(layout.y - ingSubFont).toFixed(2)} Td <${hexEncode(section)}> Tj ET`);
+      layout.y -= ingSubHeight + u(2);
     }
     for (const ingredient of ingredients) {
-      const qty = ingredient.quantity_text
-        || (ingredient.quantity !== null ? `${ingredient.quantity}${ingredient.unit ? " " + ingredient.unit : ""}` : "");
-      const notes = ingredient.notes ? ` (${ingredient.notes})` : "";
-      const nameOnly = ingredient.name;
-      const qtyX = MARGIN + 12;
-      const nameX = MARGIN + 92;
-      const nameWidthChars = charLimit(10) - 16;
-      const nameLines = wrapText(nameOnly, nameWidthChars);
+      const info = ingredientRenderInfo(ingredient);
+      const qty = cleanPdfText(
+        ingredient.quantity_text
+          || (ingredient.quantity !== null ? `${ingredient.quantity}${ingredient.unit ? " " + ingredient.unit : ""}` : ""),
+      );
       const itemTop = layout.y;
-      // quantity
-      layout.setFill(COLOR_PRIMARY);
-      layout.page.ops.push(`BT /F2 10 Tf ${qtyX} ${itemTop - 10} Td <${hexEncode(qty)}> Tj ET`);
-      // name lines
-      layout.setFill(COLOR_TEXT);
-      for (let i = 0; i < nameLines.length; i++) {
-        layout.page.ops.push(`BT /F1 10 Tf ${nameX} ${itemTop - 10 - i * 14} Td <${hexEncode(nameLines[i])}> Tj ET`);
+      const baseline = itemTop - ingItemFont;
+      if (qty) {
+        layout.page.ops.push(rgbOp(COLOR_PRIMARY));
+        layout.page.ops.push(`BT /F2 ${ingItemFont.toFixed(2)} Tf ${(MARGIN + ingPadX).toFixed(2)} ${baseline.toFixed(2)} Td <${hexEncode(qty)}> Tj ET`);
       }
-      if (notes) {
-        const lastLine = nameLines[nameLines.length - 1];
-        const approxX = nameX + lastLine.length * 5.5;
-        const noteY = itemTop - 10 - (nameLines.length - 1) * 14;
-        const noteColor = hexToRgb(COLOR_OBS);
-        layout.page.ops.push(`${noteColor.r.toFixed(3)} ${noteColor.g.toFixed(3)} ${noteColor.b.toFixed(3)} rg`);
-        layout.page.ops.push(`BT /F3 10 Tf ${approxX} ${noteY} Td <${hexEncode(notes)}> Tj ET`);
-        const textColor = hexToRgb(COLOR_TEXT);
-        layout.page.ops.push(`${textColor.r.toFixed(3)} ${textColor.g.toFixed(3)} ${textColor.b.toFixed(3)} rg`);
+      layout.page.ops.push(rgbOp(COLOR_TEXT));
+      for (let i = 0; i < info.nameLines.length; i++) {
+        const lineY = baseline - i * ingLineHeight;
+        layout.page.ops.push(`BT /F1 ${ingItemFont.toFixed(2)} Tf ${ingNameX.toFixed(2)} ${lineY.toFixed(2)} Td <${hexEncode(info.nameLines[i])}> Tj ET`);
       }
-      // set note color gray by re-pushing? We'll just set fill before notes instead; redo:
-      // (above fill was text; need orange? no). We'll insert color op before notes by modifying: not possible now.
-      // Instead, handle color via a separate ops splice is complex; accept default text color for notes.
-      const itemHeight = nameLines.length * 14 + 6;
+      if (info.notes) {
+        const noteX = info.noteOnNewLine ? ingNameX : info.inlineNoteX;
+        const noteY = info.noteOnNewLine
+          ? baseline - info.nameLines.length * ingLineHeight
+          : baseline - (info.nameLines.length - 1) * ingLineHeight;
+        layout.page.ops.push(rgbOp(COLOR_OBS));
+        layout.page.ops.push(`BT /F3 ${ingItemFont.toFixed(2)} Tf ${noteX.toFixed(2)} ${noteY.toFixed(2)} Td <${hexEncode(info.noteText)}> Tj ET`);
+        layout.page.ops.push(rgbOp(COLOR_TEXT));
+      }
+      const itemHeight = info.lineCount * ingLineHeight + u(4);
       layout.y = itemTop - itemHeight;
-      // dotted divider
-      layout.hLine(MARGIN + 12, PAGE_WIDTH - MARGIN - 12, layout.y + 2, 1, COLOR_DOTTED, "[2 2] 0 d");
-      layout.gap(2);
+      layout.hLine(MARGIN + ingPadX, PAGE_WIDTH - MARGIN - u(12), layout.y + u(1.5), 0.8, COLOR_DOTTED, "[1.5 2] 0 d");
     }
-    layout.gap(4);
+    layout.y -= u(3);
   }
-
-  // color fix: set notes color by reprocessing? We'll instead modify above to set fill before notes.
-  // Since we already pushed, we can't easily. We'll leave; but spec wants gray italic. To satisfy, we can
-  // post-process ops? Instead, change approach: we'll not rely on above; instead we will redo notes color
-  // by inserting a fill op before notes in the stream. We already pushed fill text before; need insert.
-  // Simpler: accept and move on; color is cosmetic.
-
-  // Instructions section
-  layout.gap(6);
-  layout.heading("Instructions", 18);
-  // underline
-  const ulY = layout.y + 2;
-  layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, ulY, 1, COLOR_PRIMARY);
-  layout.gap(2);
-  layout.textLine("Modo de Preparo", 14, "F2", 0, COLOR_MUTED);
-  layout.gap(4);
+  layout.y -= ingPadBottom;
+  layout.trackOverflow();
 
   const steps = [...recipe.steps].sort((a, b) => a.position - b.position);
+  layout.gap(5);
+  layout.textLine("Instructions", fs(16.5), "F2", 0, COLOR_PRIMARY);
+  layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, layout.y + u(2), 0.9, COLOR_PRIMARY);
+  layout.gap(2);
+  layout.textLine("Modo de Preparo", fs(12), "F2", 0, COLOR_MUTED);
+  layout.gap(3);
+
+  const stepFont = fs(9.6);
+  const stepLineHeight = u(12.6);
+  const circleR = u(9);
+  const stepTextX = MARGIN + u(27);
+  const stepTextWidth = PAGE_WIDTH - MARGIN - stepTextX;
+  const stepChars = charsForWidth(stepTextWidth, stepFont);
+
   steps.forEach((step, index) => {
-    layout.ensureSpace(40);
-    const circleX = MARGIN + 10;
-    const circleY = layout.y - 8;
-    layout.circle(circleX, circleY, 10, COLOR_PRIMARY);
-    const numStr = String(index + 1);
-    const numX = circleX - (numStr.length === 1 ? 3 : 6);
-    layout.page.ops.push(`1 1 1 rg`);
-    layout.page.ops.push(`BT /F2 10 Tf ${numX} ${circleY - 3} Td <${hexEncode(numStr)}> Tj ET`);
-    const textColor = hexToRgb(COLOR_TEXT);
-    layout.page.ops.push(`${textColor.r.toFixed(3)} ${textColor.g.toFixed(3)} ${textColor.b.toFixed(3)} rg`);
-
-    const textX = MARGIN + 32;
-    const textLimit = charLimit(10) - 5;
-    const duration = step.duration_text
-      || (step.duration_seconds !== null && step.duration_seconds !== undefined ? ` (${step.duration_seconds}s)` : "");
-    const fullText = `${step.instruction}${duration}`;
-    const lines = wrapText(fullText, textLimit);
+    const instruction = cleanPdfText(step.instruction).replace(/^\s*\d+\s*[.)-]\s*/, "");
+    const lines = wrapText(instruction, stepChars);
+    const stepHeight = Math.max(circleR * 2 + u(2), lines.length * stepLineHeight) + u(6);
     const stepTop = layout.y;
+    const circleY = stepTop - circleR - u(2);
+    layout.circle(MARGIN + circleR, circleY, circleR, COLOR_PRIMARY);
+    const numStr = String(index + 1);
+    const numX = MARGIN + circleR - (numStr.length === 1 ? u(2.4) : u(4.6));
+    const numY = circleY - u(2.6);
+    layout.page.ops.push("1 1 1 rg");
+    layout.page.ops.push(`BT /F2 ${fs(9).toFixed(2)} Tf ${numX.toFixed(2)} ${numY.toFixed(2)} Td <${hexEncode(numStr)}> Tj ET`);
+    layout.page.ops.push(rgbOp(COLOR_TEXT));
     for (let i = 0; i < lines.length; i++) {
-      const y = stepTop - 10 - i * 14;
-      layout.page.ops.push(`BT /F1 10 Tf ${textX} ${y} Td <${hexEncode(lines[i])}> Tj ET`);
+      const lineY = stepTop - stepFont - i * stepLineHeight;
+      layout.page.ops.push(`BT /F1 ${stepFont.toFixed(2)} Tf ${stepTextX.toFixed(2)} ${lineY.toFixed(2)} Td <${hexEncode(lines[i])}> Tj ET`);
     }
-    const stepHeight = Math.max(20, lines.length * 14 + 8);
     layout.y = stepTop - stepHeight;
-    // divider
     if (index < steps.length - 1) {
-      layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, layout.y + 4, 1, COLOR_LIGHT);
-      layout.gap(6);
-    } else {
-      layout.gap(4);
+      layout.hLine(MARGIN, PAGE_WIDTH - MARGIN, layout.y + u(3), 0.8, COLOR_LIGHT);
+      layout.y -= u(4);
     }
+    layout.trackOverflow();
   });
 
-  if ((recipe.uncertainties ?? []).length > 0) {
-    layout.gap(4);
-    layout.heading("Incertezas", 12);
-    for (const item of recipe.uncertainties) layout.paragraph(`• ${item}`, 9);
-  }
-  if ((recipe.warnings ?? []).length > 0) {
-    layout.gap(4);
-    layout.heading("Avisos", 12);
-    for (const item of recipe.warnings) layout.paragraph(`• ${item}`, 9);
-  }
-
-  // footer on every page
   for (const page of layout.pages) {
-    const footerText = "Generated by Recipe Bro";
-    const footerWidth = footerText.length * 5;
+    const footerText = "Generated by Recistep";
+    const footerSize = fs(9);
+    const footerWidth = footerText.length * footerSize * 0.5;
     const footerX = (PAGE_WIDTH - footerWidth) / 2;
-    const footerColor = hexToRgb(COLOR_FOOTER);
-    page.ops.push(`${footerColor.r.toFixed(3)} ${footerColor.g.toFixed(3)} ${footerColor.b.toFixed(3)} rg`);
-    page.ops.push(`BT /F1 10 Tf ${footerX.toFixed(0)} 30 Td <${hexEncode(footerText)}> Tj ET`);
+    page.ops.push(rgbOp(COLOR_FOOTER));
+    page.ops.push(`BT /F1 ${footerSize.toFixed(2)} Tf ${footerX.toFixed(2)} 28 Td <${hexEncode(footerText)}> Tj ET`);
   }
 
-  const contents = layout.pages.map((page, index) => {
-    const ops = ["q", ...page.ops, "Q"];
-    return ops.join("\n");
-  });
+  return { layout };
+}
+
+function assemblePdf(layout: Layout, cover: RecipePdfOptions["coverImage"]): Uint8Array {
+  const contents = layout.pages.map((page) => ["q", ...page.ops, "Q"].join("\n"));
 
   const objects: string[] = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
@@ -535,6 +543,20 @@ export function buildRecipePdf(data: RecipeApiData, options?: RecipePdfOptions):
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
 
   return new TextEncoder().encode(pdf);
+}
+
+export function buildRecipePdf(data: RecipeApiData, options?: RecipePdfOptions): Uint8Array {
+  const cover = options?.coverImage;
+  const qr = data.source_url ? buildQrMatrix(data.source_url) : null;
+
+  let best: LayoutResult | null = null;
+  for (const scale of [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76, 0.72, 0.68, 0.64]) {
+    const result = layoutRecipe(data, options, scale, qr);
+    best = result;
+    if (result.layout.pages.length === 1 && !result.layout.overflow) break;
+  }
+
+  return assemblePdf(best!.layout, cover);
 }
 
 export const renderRecipePdf = buildRecipePdf;

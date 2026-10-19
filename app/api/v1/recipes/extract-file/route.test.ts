@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   authenticateRequest: vi.fn(),
   checkUserRateLimit: vi.fn(),
   extractRecipeFromUploadedFile: vi.fn(),
+  extractLargestPdfImage: vi.fn(),
 }));
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -21,6 +22,9 @@ vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => ({
       this.retryable = retryable;
     }
   },
+}));
+vi.mock("@/lib/recipe/pdf-image", () => ({
+  extractLargestPdfImage: mocks.extractLargestPdfImage,
 }));
 
 import { POST } from "./route";
@@ -53,6 +57,7 @@ beforeEach(() => {
   mocks.authenticateRequest.mockResolvedValue({ ok: true, user: { id: "user-123" } });
   mocks.checkUserRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
   mocks.extractRecipeFromUploadedFile.mockResolvedValue(validRecipe);
+  mocks.extractLargestPdfImage.mockReturnValue(null);
 });
 
 describe("POST /api/v1/recipes/extract-file", () => {
@@ -68,6 +73,32 @@ describe("POST /api/v1/recipes/extract-file", () => {
       mimeType: "image/png",
       locale: "pt-BR",
     }));
+  });
+
+  it("returns the extracted PDF cover alongside the draft", async () => {
+    mocks.extractLargestPdfImage.mockReturnValue({
+      mimeType: "image/png",
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      width: 400,
+      height: 300,
+    });
+    const file = new File([new Uint8Array([1, 2, 3])], "recipe.pdf", { type: "application/pdf" });
+    const response = await POST(request(file));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cover).toEqual({ mime_type: "image/png", base64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
+    expect(mocks.extractLargestPdfImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not attempt cover extraction for image uploads", async () => {
+    const file = new File([new Uint8Array([1])], "recipe.png", { type: "image/png" });
+    const response = await POST(request(file));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cover).toBeUndefined();
+    expect(mocks.extractLargestPdfImage).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported file types without calling Gemini", async () => {

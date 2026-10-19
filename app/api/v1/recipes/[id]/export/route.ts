@@ -35,11 +35,20 @@ async function loadCoverImage(url: string | null): Promise<RecipePdfOptions["cov
     const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) return undefined;
     const type = (response.headers.get("content-type") ?? "").toLowerCase();
-    if (!type.includes("jpeg") && !type.includes("jpg")) return undefined;
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const dimensions = jpegDimensions(bytes);
+    const source = Buffer.from(await response.arrayBuffer());
+    if (type.includes("jpeg") || type.includes("jpg")) {
+      const dimensions = jpegDimensions(source);
+      if (dimensions) return { bytes: new Uint8Array(source), width: dimensions.width, height: dimensions.height };
+    }
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp(source)
+      .rotate()
+      .resize(220, 220, { fit: "cover", position: "centre" })
+      .jpeg({ quality: 86 })
+      .toBuffer();
+    const dimensions = jpegDimensions(jpeg);
     if (!dimensions) return undefined;
-    return { bytes, width: dimensions.width, height: dimensions.height };
+    return { bytes: new Uint8Array(jpeg), width: dimensions.width, height: dimensions.height };
   } catch {
     return undefined;
   }
@@ -75,7 +84,8 @@ async function handle(request: Request, context: { params: Promise<{ id: string 
       return NextResponse.json({ error: { code: "RECIPE_NOT_FOUND", message: "Receita nao encontrada.", retryable: false } }, { status: 404 });
     }
     const data = recipeApiData(detail);
-    const coverImage = await loadCoverImage(data.cover_image_url);
+    const coverUrl = data.cover_image_url ?? data.video_display?.thumbnail_url ?? null;
+    const coverImage = await loadCoverImage(coverUrl);
     const bytes = buildRecipePdf(data, { coverImage });
     const fileName = `${sanitizeFileName(data.recipe.title)}.pdf`;
     return new Response(Buffer.from(bytes), {

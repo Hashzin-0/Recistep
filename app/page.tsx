@@ -7,6 +7,7 @@ import { SignInPrompt } from "@/components/sign-in-prompt";
 import { CardSwap } from "@/components/card-swap";
 import { ShoppingListPanel } from "@/components/recipe-planner";
 import { RecipeEditor } from "@/components/recipe-editor";
+import { CoverImagePicker } from "@/components/cover-image-picker";
 import { KitchenMode } from "@/components/kitchen-mode";
 import { useVoiceAssistantContext, useVoiceAssistantControls, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { VoiceTranscriptInput } from "@/components/voice-transcript-input";
@@ -94,6 +95,20 @@ function writeStoredImportId(key: string, id: string | null): void {
   }
 }
 
+function fileFromExtractedCover(cover?: { mime_type?: string; base64?: string }): File | null {
+  if (!cover?.base64) return null;
+  const mime = cover.mime_type === "image/png" ? "image/png" : "image/jpeg";
+  const extension = mime === "image/png" ? "png" : "jpg";
+  try {
+    const binary = atob(cover.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], "capa-extraida." + extension, { type: mime });
+  } catch {
+    return null;
+  }
+}
+
 export default function HomePage() {
   const { supabase, accessToken, getAccessToken, signedInEmail } = useAuth();
   const [sourceUrl, setSourceUrl] = useState("");
@@ -108,11 +123,13 @@ export default function HomePage() {
   const [transcript, setTranscript] = useState("");
   const [voiceRecipeTranscript, setVoiceRecipeTranscript] = useState("");
   const [voiceRecipeDraft, setVoiceRecipeDraft] = useState<RecipeExtraction | null>(null);
+  const [draftCoverFile, setDraftCoverFile] = useState<File | null>(null);
   const [isExtractingVoiceRecipe, setIsExtractingVoiceRecipe] = useState(false);
   const [isSavingVoiceRecipe, setIsSavingVoiceRecipe] = useState(false);
   const [voiceRecipeMessage, setVoiceRecipeMessage] = useState<string | null>(null);
   const [voiceSavedRecipeId, setVoiceSavedRecipeId] = useState<string | null>(null);
   const [reviewDraft, setReviewDraft] = useState<RecipeExtraction | null>(null);
+  const [reviewCoverFile, setReviewCoverFile] = useState<File | null>(null);
   const [streamDraft, setStreamDraft] = useState<RecipeExtraction | null>(null);
   const [activeModeIndex, setActiveModeIndex] = useState(0);
   const [importedModeIndex, setImportedModeIndex] = useState(0);
@@ -179,6 +196,7 @@ export default function HomePage() {
       setActiveImportId(body.data.id);
       setImportRecord(body.data);
       setImportedModeIndex(activeModeIndex);
+      setReviewCoverFile(null);
       setTranscript("");
       setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
       return { ok: true, message: "Importação registrada; o estado aparece na tela." };
@@ -209,6 +227,7 @@ export default function HomePage() {
         return { ok: false, message };
       }
       setVoiceRecipeDraft(body.data);
+      setDraftCoverFile(null);
       setVoiceRecipeMessage("Rascunho criado. Revise ingredientes, quantidades e etapas antes de salvar.");
       return { ok: true, message: "Rascunho criado na tela; o usuário pode revisar e salvar em Minhas receitas." };
     } catch {
@@ -230,6 +249,7 @@ export default function HomePage() {
     setActiveImportId(null);
     setImportRecord(null);
     setReviewDraft(null);
+    setReviewCoverFile(null);
     setStreamDraft(null);
     setTranscript("");
     setFeedback(null);
@@ -518,11 +538,27 @@ export default function HomePage() {
         return;
       }
       setVoiceRecipeDraft(body.data);
+      setDraftCoverFile(null);
       setVoiceRecipeMessage("Rascunho criado. Revise ingredientes, quantidades e etapas antes de salvar.");
     } catch {
       setVoiceRecipeMessage("Falha de conexão ao gerar a receita. Seu texto continua disponível para tentar novamente.");
     } finally {
       setIsExtractingVoiceRecipe(false);
+    }
+  }
+
+  async function uploadCoverForRecipe(recipeId: string, token: string, file: File): Promise<boolean> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/v1/recipes/" + recipeId + "/cover", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+        body: formData,
+      });
+      return response.ok;
+    } catch {
+      return false;
     }
   }
 
@@ -546,9 +582,17 @@ export default function HomePage() {
         setVoiceRecipeMessage(body.error?.message ?? "Não foi possível salvar a receita.");
         return;
       }
+      let coverWarning = false;
+      if (draftCoverFile) {
+        const uploaded = await uploadCoverForRecipe(body.data.id, token, draftCoverFile);
+        setDraftCoverFile(null);
+        coverWarning = !uploaded;
+      }
       setVoiceSavedRecipeId(body.data.id);
       setVoiceRecipeDraft(null);
-      setVoiceRecipeMessage("Receita salva em Minhas receitas.");
+      setVoiceRecipeMessage(coverWarning
+        ? "Receita salva em Minhas receitas, mas não foi possível enviar a capa. Adicione depois na edição."
+        : "Receita salva em Minhas receitas.");
     } catch {
       setVoiceRecipeMessage("Falha de conexão ao salvar. O rascunho continua disponível para tentar novamente.");
     } finally {
@@ -608,6 +652,12 @@ export default function HomePage() {
         setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível confirmar a receita." });
         return;
       }
+      let coverWarning = false;
+      if (reviewCoverFile) {
+        const uploaded = await uploadCoverForRecipe(body.data.recipe_id, token, reviewCoverFile);
+        setReviewCoverFile(null);
+        coverWarning = !uploaded;
+      }
       setImportRecord((previous) => previous ? {
         ...previous,
         status: "completed",
@@ -615,7 +665,9 @@ export default function HomePage() {
         recipe_draft: reviewDraft,
       } : previous);
       voiceControls.disconnect();
-      setFeedback({ kind: "info", message: body.data.already_confirmed ? "Esta receita já estava confirmada." : "Receita confirmada e salva com ingredientes e etapas." });
+      setFeedback({ kind: "info", message: coverWarning
+        ? "Receita confirmada, mas não foi possível enviar a capa. Adicione depois na edição."
+        : body.data.already_confirmed ? "Esta receita já estava confirmada." : "Receita confirmada e salva com ingredientes e etapas." });
     } catch {
       setFeedback({ kind: "error", message: "Falha de conexão ao confirmar a receita." });
     } finally {
@@ -721,6 +773,7 @@ export default function HomePage() {
         setActiveImportId(body.data.id);
         setImportRecord(body.data);
         setImportedModeIndex(activeModeIndex);
+        setReviewCoverFile(null);
         setTranscript("");
         setFeedback({ kind: "info", message: "Importação registrada. Acompanhe o estado abaixo." });
       } else {
@@ -764,12 +817,17 @@ export default function HomePage() {
         headers: { Authorization: "Bearer " + token },
         body: formData,
       });
-      const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
+      const body = await response.json() as {
+        data?: RecipeExtraction;
+        cover?: { mime_type?: string; base64?: string };
+        error?: { message?: string };
+      };
       if (!response.ok || !body.data) {
         setFeedback({ kind: "error", message: body.error?.message ?? "Não foi possível extrair a receita deste arquivo." });
         return;
       }
       setVoiceRecipeDraft(body.data);
+      setDraftCoverFile(fileFromExtractedCover(body.cover) ?? null);
       setVoiceRecipeMessage("Rascunho extraído do arquivo. Revise ingredientes, quantidades e etapas antes de salvar.");
       setVoiceSavedRecipeId(null);
       setSelectedRecipeFile(null);
@@ -975,6 +1033,14 @@ export default function HomePage() {
                   {voiceRecipeMessage && (
                     <p className="field-hint" role="status" aria-live="polite">{voiceRecipeMessage}</p>
                   )}
+                  <CoverImagePicker
+                    idPrefix="voice-draft"
+                    value={draftCoverFile}
+                    onChange={setDraftCoverFile}
+                    onInvalid={(message) => setVoiceRecipeMessage(message)}
+                    disabled={isSavingVoiceRecipe || isExtractingVoiceRecipe}
+                    existingUrl={voiceRecipeDraft.cover_image_url}
+                  />
                   <RecipeEditor value={voiceRecipeDraft} onChange={setVoiceRecipeDraft} idPrefix="voice-draft" allowStructureEdit />
                   {voiceRecipeDraft.uncertainties.length > 0 && <p className="field-hint">Pontos incertos: {voiceRecipeDraft.uncertainties.join(" · ")}</p>}
                   {voiceRecipeDraft.warnings.length > 0 && <p className="field-hint">Avisos: {voiceRecipeDraft.warnings.join(" · ")}</p>}
@@ -1089,6 +1155,14 @@ export default function HomePage() {
                   <h4>Revise sua receita</h4>
                   <p className="field-hint">Os campos são editáveis. A receita só será salva como confirmada após você selecionar “Confirmar receita”. Quantidades e tempos ausentes continuam desconhecidos.</p>
                   {/* O assistente de voz fica fixo na hero, não dentro do rascunho. */}
+                  <CoverImagePicker
+                    idPrefix="review"
+                    value={reviewCoverFile}
+                    onChange={setReviewCoverFile}
+                    onInvalid={(message) => setFeedback({ kind: "error", message })}
+                    disabled={isSavingReview || isConfirmingRecipe}
+                    existingUrl={reviewDraft.cover_image_url}
+                  />
                   <RecipeEditor value={reviewDraft} onChange={setReviewDraft} idPrefix="review" />
                   <div className="review-actions">
                     <button className="auth-secondary-button" type="button" onClick={saveRecipeReview} disabled={isSavingReview || isConfirmingRecipe}>{isSavingReview ? "Salvando…" : "Salvar revisão"}</button>

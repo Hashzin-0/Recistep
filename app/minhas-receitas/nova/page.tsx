@@ -7,6 +7,7 @@ import { SignInPrompt } from "@/components/sign-in-prompt";
 import { useVoiceAssistantContext, type VoiceContextConfig } from "@/components/voice-assistant-provider";
 import { PageTransition } from "@/components/view-transition";
 import { RecipeEditor } from "@/components/recipe-editor";
+import { CoverImagePicker } from "@/components/cover-image-picker";
 import { apiFetch } from "@/lib/client/api";
 import { createEmptyRecipe, type RecipeApiData } from "@/lib/recipe/recipe-draft";
 import { defineToolGroup } from "@/lib/voice/function-tool";
@@ -46,6 +47,7 @@ export default function NovaReceitaPage() {
   const router = useRouter();
   const { accessToken, signedInEmail } = useAuth();
   const [draft, setDraft] = useState<RecipeExtraction>(() => createEmptyRecipe());
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -61,13 +63,28 @@ export default function NovaReceitaPage() {
         method: "POST",
         body: JSON.stringify(draft),
       });
-      router.push(`/minhas-receitas/${data.id}`);
+      let coverFailed = false;
+      if (coverFile) {
+        try {
+          const formData = new FormData();
+          formData.append("file", coverFile);
+          const response = await fetch(`/api/v1/recipes/${data.id}/cover`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body: formData,
+          });
+          if (!response.ok) coverFailed = true;
+        } catch {
+          coverFailed = true;
+        }
+      }
+      router.push(coverFailed ? `/minhas-receitas/${data.id}/editar` : `/minhas-receitas/${data.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível salvar a receita.");
     } finally {
       setSaving(false);
     }
-  }, [accessToken, draft, router]);
+  }, [accessToken, draft, router, coverFile]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,6 +118,14 @@ export default function NovaReceitaPage() {
           <ManualRecipeVoice bridge={manualBridge} />
           <form className="recipe-draft" onSubmit={submit}>
             {error && <p className="feedback feedback-error" role="alert">{error}</p>}
+            <CoverImagePicker
+              idPrefix="new"
+              value={coverFile}
+              onChange={setCoverFile}
+              onInvalid={setError}
+              disabled={saving}
+              existingUrl={draft.cover_image_url}
+            />
             <RecipeEditor value={draft} onChange={setDraft} idPrefix="new" allowStructureEdit />
             <div className="review-actions">
               <button className="auth-secondary-button" type="button" onClick={() => router.push("/minhas-receitas")}>Cancelar</button>

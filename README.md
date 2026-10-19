@@ -163,10 +163,11 @@ O plano detalhado de 14 critérios está em [plano.md](./plano.md). Ele distingu
 
 ## Abas de navegação e CRUD de receitas
 
-A interface agora é dividida em três abas por rota, com um cabeçalho compartilhado (`components/app-header.tsx`) e estado de autenticação em contexto (`components/auth-provider.tsx`):
+A interface agora é dividida em quatro abas por rota, com um cabeçalho compartilhado (`components/app-header.tsx`) e estado de autenticação em contexto (`components/auth-provider.tsx`):
 
 - **Receitas** (`/`): importação de links, revisão, confirmação, modo cozinha e o botão para criar uma receita manualmente.
 - **Minhas receitas** (`/minhas-receitas`): lista das receitas salvas do usuário autenticado — somente o dono tem acesso. Abre o detalhe (`/minhas-receitas/{id}`), inicia o preparo (modo cozinha), edita (`/minhas-receitas/{id}/editar`) e exclui.
+- **Temporizadores** (`/temporizadores`): reúne os temporizadores criados no modo cozinha, com contagem em tempo real, pausa, retomada e remoção. O modo cozinha continua criando os timers, que aparecem automaticamente nesta aba e também podem ser controlados por voz.
 - **Lista de compras** (`/lista-de-compras`): lista as listas do usuário, cria uma nova a partir das receitas salvas selecionadas, marca itens comprados e exclui listas.
 
 Endpoints:
@@ -198,6 +199,8 @@ A ficha de receita permite separar ingredientes em camadas nomeadas (por exemplo
 Na página de detalhe da receita:
 - ingredientes são exibidos com ícones visuais por tipo de ingrediente;
 - o proprietário pode enviar uma capa JPG, PNG ou WebP de até 8 MB;
+- a capa também pode ser escolhida no próprio rascunho (arquivo, transcrição, link e criação manual), antes de salvar; o upload é feito automaticamente logo após a receita ser criada;
+- ao importar um PDF, a maior imagem embutida (ignorando ícones e máscaras) é extraída no servidor e pré-selecionada como capa do rascunho; se nenhuma imagem compatível existir, a capa fica em aberto;
 - o proprietário pode avaliar de 1 a 5 estrelas, com média e quantidade de avaliações;
 - o botão **Gerar fluxograma do preparo** solicita ao modelo de imagem um infográfico das etapas salvas e guarda o resultado no bucket Supabase Storage `recipe-media`.
 

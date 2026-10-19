@@ -322,8 +322,8 @@ export default function ListaDeComprasPage() {
           )}
 
            <div className="shopping-view-toggle" role="group" aria-label="Modo de visualização">
-             <button type="button" className={viewMode === "separate" ? "import-button" : "secondary-button"} onClick={() => setViewMode("separate")}>Listas separadas</button>
-             <button type="button" className={viewMode === "combined" ? "import-button" : "secondary-button"} onClick={() => setViewMode("combined")}>Lista única</button>
+             <button type="button" className={viewMode === "separate" ? "import-button" : "secondary-button"} aria-pressed={viewMode === "separate"} onClick={() => setViewMode("separate")}>Listas separadas</button>
+             <button type="button" className={viewMode === "combined" ? "import-button" : "secondary-button"} aria-pressed={viewMode === "combined"} onClick={() => setViewMode("combined")}>Lista única</button>
            </div>
 
            <div className="shopping-lists">

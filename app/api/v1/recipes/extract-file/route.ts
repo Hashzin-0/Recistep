@@ -2,6 +2,7 @@ import { checkUserRateLimit } from "@/lib/server/rate-limit";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractRecipeFromUploadedFile, GeminiExtractionError } from "@/lib/providers/ai/gemini-recipe-extractor";
+import { extractLargestPdfImage } from "@/lib/recipe/pdf-image";
 import { authenticateRequest } from "@/lib/server/route-auth";
 
 export const runtime = "nodejs";
@@ -36,6 +37,17 @@ function mimeForFile(file: File): string | null {
   const inferred = extensionMimeTypes[extension];
   if ((!declared || declared === "application/octet-stream") && inferred) return inferred;
   return null;
+}
+
+function extractCoverFromPdf(mimeType: string, bytes: Uint8Array): { mime_type: string; base64: string } | null {
+  if (mimeType !== "application/pdf") return null;
+  try {
+    const image = extractLargestPdfImage(bytes);
+    if (!image) return null;
+    return { mime_type: image.mimeType, base64: Buffer.from(image.bytes).toString("base64") };
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: Request) {
@@ -126,7 +138,8 @@ export async function POST(request: Request) {
       locale: localeResult.data,
       ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
     });
-    return NextResponse.json({ data: recipe });
+    const cover = extractCoverFromPdf(mimeType, bytes);
+    return NextResponse.json(cover ? { data: recipe, cover } : { data: recipe });
   } catch (error) {
     if (error instanceof GeminiExtractionError) {
       const status = error.message === "GEMINI_NOT_CONFIGURED" ? 503
