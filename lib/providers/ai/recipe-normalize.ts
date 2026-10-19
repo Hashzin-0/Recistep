@@ -5,18 +5,23 @@ import {
   type PreparationStepExtraction,
 } from "@/lib/schemas/recipe";
 import { collectCoverageWarnings, enrichRecipeDraft } from "@/lib/recipe/enrich";
+import { applyCupToGramsConversion } from "@/lib/recipe/cup-to-grams";
 
 // Applies deterministic reconciliation and appends coverage warnings so that
 // measurements and step times stated in the source are never dropped.
-export function finalizeRecipe(draft: RecipeExtraction): RecipeExtraction {
+export function finalizeRecipe(
+  draft: RecipeExtraction,
+  options: { convertCupsToGrams?: boolean } = {},
+): RecipeExtraction {
   const enriched = enrichRecipeDraft(draft);
-  const coverage = collectCoverageWarnings(enriched);
-  if (coverage.length === 0) return enriched;
-  const merged = [...enriched.warnings];
+  const converted = applyCupToGramsConversion(enriched, Boolean(options.convertCupsToGrams));
+  const coverage = collectCoverageWarnings(converted);
+  if (coverage.length === 0) return converted;
+  const merged = [...converted.warnings];
   for (const warning of coverage) {
     if (!merged.includes(warning)) merged.push(warning);
   }
-  return { ...enriched, warnings: merged.slice(0, 100) };
+  return { ...converted, warnings: merged.slice(0, 100) };
 }
 
 // --- Lenient normalization of (possibly partial) decoded JSON -----------------
@@ -95,7 +100,10 @@ function stringArray(value: unknown): string[] {
  * re-validated against the strict schema. Returns null when there is no title
  * yet (nothing worth showing).
  */
-export function normalizePartialRecipe(decoded: unknown): RecipeExtraction | null {
+export function normalizePartialRecipe(
+  decoded: unknown,
+  options: { convertCupsToGrams?: boolean } = {},
+): RecipeExtraction | null {
   if (!isRecord(decoded)) return null;
   const title = stringOrNull(decoded.title)?.trim();
   if (!title) return null;
@@ -108,7 +116,7 @@ export function normalizePartialRecipe(decoded: unknown): RecipeExtraction | nul
     ? decoded.steps.map((item, index) => coerceStep(item, index)).filter((item): item is PreparationStepExtraction => item !== null)
     : [];
 
-  return {
+  const recipe: RecipeExtraction = {
     title,
     description: stringOrNull(decoded.description)?.trim() || null,
     source_language: stringOrNull(decoded.source_language)?.trim() || null,
@@ -130,4 +138,5 @@ export function normalizePartialRecipe(decoded: unknown): RecipeExtraction | nul
     uncertainties: stringArray(decoded.uncertainties),
     warnings: stringArray(decoded.warnings),
   };
+  return applyCupToGramsConversion(recipe, Boolean(options.convertCupsToGrams));
 }

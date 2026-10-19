@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 const requestSchema = z.object({
   transcript: z.string().trim().min(80).max(80_000),
   locale: z.string().trim().min(2).max(20).default("pt-BR"),
+  convert_cups_to_grams: z.boolean().optional().default(false),
 }).strict();
 
 export async function POST(request: Request) {
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
     const recipe = await extractRecipeFromTranscript({
       transcript: parsed.data.transcript,
       locale: parsed.data.locale,
+      ...(parsed.data.convert_cups_to_grams ? { convertCupsToGrams: true } : {}),
     });
     return NextResponse.json({ data: recipe });
   } catch (error) {

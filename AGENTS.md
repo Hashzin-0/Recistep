@@ -23,6 +23,13 @@ npx vitest run -t "nome do teste"
 
 CI (`.github/workflows/ci.yml`) runs, in order: `npm test` -> `npm run typecheck` -> `npm run build`. Run those before considering a change done.
 
+## Working tree / multi-agent safety
+
+- Before any code edit, run `git status --short` (or equivalent) to check for uncommitted changes.
+- If the working tree is dirty, assume another agent/session may be editing concurrently. Inspect the diff and only touch files/lines required by the requested task; never overwrite, revert, or squash the other agent's changes.
+- Prefer minimal, targeted edits and re-read files immediately before editing to avoid clobbering concurrent work.
+- If a requested change conflicts with existing uncommitted changes, stop and ask the user how to proceed instead of overwriting.
+
 ## Testing quirks
 
 - Tests are colocated next to source as `*.test.ts`; env is `node` (no DOM). `clearMocks`/`restoreMocks` are on.

@@ -21,6 +21,7 @@ const importRequestSchema = z.object({
   locale: z.string().trim().min(2).max(20).default("pt-BR"),
   servings_target: z.number().positive().max(100).optional(),
   idempotency_key: z.string().trim().min(8).max(200).optional(),
+  convert_cups_to_grams: z.boolean().optional().default(false),
 }).strict();
 
 function bearerToken(request: Request): string | null {
@@ -242,7 +243,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      await inngest.send({ name: "recistep/import.requested", data: { id: record.id, user_id: user.id } });
+      await inngest.send({ name: "recistep/import.requested", data: { id: record.id, user_id: user.id, convert_cups_to_grams: parsed.data.convert_cups_to_grams } });
     } catch {
       await updateSourceImport(record.id, {
         status: "failed",

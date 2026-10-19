@@ -157,6 +157,33 @@ export default function ReceitaDetalhePage() {
     } finally { setMediaBusy(false); }
   }
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
+
+  async function exportPdf() {
+    if (!accessToken || !id || !data) return;
+    setExportingPdf(true);
+    setExportMessage("");
+    try {
+      const response = await fetch(`/api/v1/recipes/${id}/export`, { headers: { Authorization: "Bearer " + accessToken } });
+      if (!response.ok) throw new Error("Nao foi possivel exportar a receita.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${data.recipe.title}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setExportMessage("PDF exportado.");
+    } catch (cause) {
+      setExportMessage(cause instanceof Error ? cause.message : "Falha ao exportar a receita.");
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   async function createShoppingListForVoice() {
     if (!accessToken || !data) throw new Error("Entre novamente para criar a lista.");
     const created = await apiFetch<{ id: string; title: string }>("/api/v1/shopping-lists", accessToken, {
@@ -246,6 +273,13 @@ export default function ReceitaDetalhePage() {
                 <button className="link-button danger" type="button" onClick={() => void remove()} disabled={deleting}>
                   {deleting ? "Excluindo…" : "Excluir"}
                 </button>
+                <button className="auth-secondary-button" type="button" disabled={exportingPdf} onClick={() => void exportPdf()}>
+                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
+                </button>
+                <button className="auth-secondary-button" type="button" onClick={() => window.print()}>
+                  Imprimir
+                </button>
+                {exportMessage && <p className="field-hint" role="status">{exportMessage}</p>}
               </div>
 
               {data.video_display && <VideoDisplay display={data.video_display} title={data.recipe.title} />}

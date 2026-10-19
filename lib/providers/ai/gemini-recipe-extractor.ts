@@ -41,6 +41,7 @@ function buildGenerationConfig() {
 async function generateStructuredRecipeWithGemini(
   parts: GeminiPart[],
   model: string,
+  options: { convertCupsToGrams?: boolean } = {},
 ): Promise<RecipeExtraction> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new GeminiExtractionError("GEMINI_NOT_CONFIGURED", false);
@@ -91,7 +92,7 @@ async function generateStructuredRecipeWithGemini(
   if (!parsed.success) {
     throw new GeminiExtractionError("GEMINI_OUTPUT_SCHEMA_INVALID", true);
   }
-  return finalizeRecipe(parsed.data);
+  return finalizeRecipe(parsed.data, options);
 }
 
 /**
@@ -101,12 +102,12 @@ async function generateStructuredRecipeWithGemini(
  */
 async function generateStructuredRecipe(
   parts: GeminiPart[],
-  options: { openRouterFallback?: boolean } = {},
+  options: { openRouterFallback?: boolean; convertCupsToGrams?: boolean } = {},
 ): Promise<RecipeExtraction> {
   let lastError: unknown;
   for (const model of resolveGeminiModels()) {
     try {
-      const recipe = await generateStructuredRecipeWithGemini(parts, model);
+      const recipe = await generateStructuredRecipeWithGemini(parts, model, { convertCupsToGrams: options.convertCupsToGrams });
       console.info(`[ai-provider] gemini served recipe (model=${model})`);
       return recipe;
     } catch (error) {
@@ -117,7 +118,7 @@ async function generateStructuredRecipe(
 
   if (options.openRouterFallback !== false && isOpenRouterConfigured()) {
     console.warn("[ai-provider] all Gemini models failed; falling back to OpenRouter");
-    return generateStructuredRecipeViaOpenRouter(parts);
+    return generateStructuredRecipeViaOpenRouter(parts, { convertCupsToGrams: options.convertCupsToGrams });
   }
   throw lastError;
 }
@@ -203,6 +204,7 @@ async function openStreamingResponse(parts: GeminiPart[], model: string): Promis
 async function* streamStructuredRecipeWithGemini(
   parts: GeminiPart[],
   model: string,
+  options: { convertCupsToGrams?: boolean } = {},
 ): AsyncGenerator<RecipeExtraction, void, undefined> {
   const response = await openStreamingResponse(parts, model);
   if (!response.body) {
@@ -258,7 +260,7 @@ async function* streamStructuredRecipeWithGemini(
       recipeText += chunkText;
     }
     const decoded = parsePartialJson(recipeText);
-    return decoded === undefined ? null : normalizePartialRecipe(decoded);
+    return decoded === undefined ? null : normalizePartialRecipe(decoded, { convertCupsToGrams: options.convertCupsToGrams });
   };
 
   try {
@@ -301,7 +303,7 @@ async function* streamStructuredRecipeWithGemini(
   }
   emittedSignature = "";
   console.info(`[ai-provider] gemini served recipe (model=${model})`);
-  yield finalizeRecipe(parsed.data);
+  yield finalizeRecipe(parsed.data, { convertCupsToGrams: options.convertCupsToGrams });
 }
 
 /**
@@ -312,12 +314,12 @@ async function* streamStructuredRecipeWithGemini(
  */
 export async function* streamStructuredRecipe(
   parts: GeminiPart[],
-  options: { openRouterFallback?: boolean } = {},
+  options: { openRouterFallback?: boolean; convertCupsToGrams?: boolean } = {},
 ): AsyncGenerator<RecipeExtraction, void, undefined> {
   let lastError: unknown;
   for (const model of resolveGeminiModels()) {
     try {
-      yield* streamStructuredRecipeWithGemini(parts, model);
+      yield* streamStructuredRecipeWithGemini(parts, model, { convertCupsToGrams: options.convertCupsToGrams });
       return;
     } catch (error) {
       lastError = error;
@@ -327,7 +329,7 @@ export async function* streamStructuredRecipe(
 
   if (options.openRouterFallback !== false && isOpenRouterConfigured()) {
     console.warn("[ai-provider] all Gemini models failed; falling back to OpenRouter");
-    yield* streamStructuredRecipeViaOpenRouter(parts);
+    yield* streamStructuredRecipeViaOpenRouter(parts, { convertCupsToGrams: options.convertCupsToGrams });
     return;
   }
   throw lastError;
@@ -342,6 +344,7 @@ export async function extractRecipeFromUploadedFile(input: {
   mimeType: string;
   bytes: Uint8Array;
   locale?: string;
+  convertCupsToGrams?: boolean;
 }): Promise<RecipeExtraction> {
   const allowedMimeTypes = new Set([
     "application/pdf",
@@ -374,13 +377,14 @@ export async function extractRecipeFromUploadedFile(input: {
         data: Buffer.from(input.bytes).toString("base64"),
       },
     },
-  ]);
+  ], { convertCupsToGrams: input.convertCupsToGrams });
 }
 
 export async function extractRecipeFromTranscript(input: {
   transcript: string;
   locale?: string;
   sourceTitle?: string;
+  convertCupsToGrams?: boolean;
 }): Promise<RecipeExtraction> {
   const transcript = input.transcript.trim();
   if (transcript.length < 80 || transcript.length > 80_000) {
@@ -395,7 +399,7 @@ export async function extractRecipeFromTranscript(input: {
     transcript,
   ].filter(Boolean).join("\n\n");
 
-  return generateStructuredRecipe([{ text: prompt }]);
+  return generateStructuredRecipe([{ text: prompt }], { convertCupsToGrams: input.convertCupsToGrams });
 }
 
 const PLATFORM_LABELS: Record<SupportedPlatform, string> = {
@@ -416,6 +420,7 @@ export type MediaInput = {
   mimeType?: string;
   locale?: string;
   sourceTitle?: string;
+  convertCupsToGrams?: boolean;
 };
 
 /**
@@ -546,9 +551,10 @@ export async function* streamRecipeFromPreparedMedia(input: {
   locale?: string;
   sourceTitle?: string;
   fallbackTranscript?: string;
+  convertCupsToGrams?: boolean;
 }): AsyncGenerator<RecipeExtraction, void, undefined> {
   try {
-    yield* streamStructuredRecipe(preparedMediaParts(input.media, input), { openRouterFallback: false });
+    yield* streamStructuredRecipe(preparedMediaParts(input.media, input), { openRouterFallback: false, convertCupsToGrams: input.convertCupsToGrams });
     return;
   } catch (error) {
     let openRouterError: unknown = null;
@@ -556,7 +562,7 @@ export async function* streamRecipeFromPreparedMedia(input: {
       console.warn("[ai-provider] Gemini media extraction failed; falling back to OpenRouter");
       try {
         const parts = await openRouterMediaParts(input.media, input);
-        yield* streamStructuredRecipeViaOpenRouter(parts);
+        yield* streamStructuredRecipeViaOpenRouter(parts, { convertCupsToGrams: input.convertCupsToGrams });
         return;
       } catch (fallbackError) {
         openRouterError = fallbackError;
@@ -574,6 +580,7 @@ export async function* streamRecipeFromPreparedMedia(input: {
         transcript: fallback,
         locale: input.locale,
         sourceTitle: input.sourceTitle,
+        convertCupsToGrams: input.convertCupsToGrams,
       });
       return;
     }
@@ -589,19 +596,19 @@ export async function extractRecipeFromMediaUrl(input: MediaInput): Promise<Reci
   const media = await prepareMediaForGemini(input);
   try {
     try {
-      return await generateStructuredRecipe(preparedMediaParts(media, input), { openRouterFallback: false });
+      return await generateStructuredRecipe(preparedMediaParts(media, input), { openRouterFallback: false, convertCupsToGrams: input.convertCupsToGrams });
     } catch (error) {
       if (!isOpenRouterConfigured()) throw error;
       console.warn("[ai-provider] Gemini media extraction failed; falling back to OpenRouter");
       const parts = await openRouterMediaParts(media, input);
-      return await generateStructuredRecipeViaOpenRouter(parts);
+      return await generateStructuredRecipeViaOpenRouter(parts, { convertCupsToGrams: input.convertCupsToGrams });
     }
   } finally {
     await deletePreparedMedia(media).catch(() => undefined);
   }
 }
 
-export async function* streamRecipeFromMediaUrl(input: MediaInput & { fallbackTranscript?: string }): AsyncGenerator<RecipeExtraction, void, undefined> {
+export async function* streamRecipeFromMediaUrl(input: MediaInput & { fallbackTranscript?: string; convertCupsToGrams?: boolean }): AsyncGenerator<RecipeExtraction, void, undefined> {
   const media = await prepareMediaForGemini(input);
   try {
     yield* streamRecipeFromPreparedMedia({
@@ -610,6 +617,7 @@ export async function* streamRecipeFromMediaUrl(input: MediaInput & { fallbackTr
       locale: input.locale,
       sourceTitle: input.sourceTitle,
       fallbackTranscript: input.fallbackTranscript,
+      convertCupsToGrams: input.convertCupsToGrams,
     });
   } finally {
     await deletePreparedMedia(media).catch(() => undefined);
@@ -620,14 +628,16 @@ export async function extractRecipeFromYouTubeUrl(input: {
   sourceUrl: string;
   locale?: string;
   sourceTitle?: string;
+  convertCupsToGrams?: boolean;
 }): Promise<RecipeExtraction> {
-  return extractRecipeFromMediaUrl({ ...input, mediaUrl: input.sourceUrl, platform: "youtube" });
+  return extractRecipeFromMediaUrl({ ...input, mediaUrl: input.sourceUrl, platform: "youtube", convertCupsToGrams: input.convertCupsToGrams });
 }
 
 export async function* streamRecipeFromTranscript(input: {
   transcript: string;
   locale?: string;
   sourceTitle?: string;
+  convertCupsToGrams?: boolean;
 }): AsyncGenerator<RecipeExtraction, void, undefined> {
   const transcript = input.transcript.trim();
   if (transcript.length < 80 || transcript.length > 80_000) {
@@ -640,15 +650,16 @@ export async function* streamRecipeFromTranscript(input: {
     "Extraia somente os dados de receita sustentados pela transcrição abaixo.",
     "Transcrição:",
     transcript,
-  ].filter(Boolean).join("\n\n");
+  ].filter(Boolean).join("\\n\\n");
 
-  yield* streamStructuredRecipe([{ text: prompt }]);
+  yield* streamStructuredRecipe([{ text: prompt }], { convertCupsToGrams: input.convertCupsToGrams });
 }
 
 export async function* streamRecipeFromYouTubeUrl(input: {
   sourceUrl: string;
   locale?: string;
   sourceTitle?: string;
+  convertCupsToGrams?: boolean;
 }): AsyncGenerator<RecipeExtraction, void, undefined> {
-  yield* streamRecipeFromMediaUrl({ ...input, mediaUrl: input.sourceUrl, platform: "youtube" });
+  yield* streamRecipeFromMediaUrl({ ...input, mediaUrl: input.sourceUrl, platform: "youtube", convertCupsToGrams: input.convertCupsToGrams });
 }

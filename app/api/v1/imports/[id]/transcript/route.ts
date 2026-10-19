@@ -14,6 +14,7 @@ export const runtime = "nodejs";
 
 const transcriptSchema = z.object({
   transcript: z.string().trim().min(80).max(80_000),
+  convert_cups_to_grams: z.boolean().optional().default(false),
 }).strict();
 
 function bearerToken(request: Request): string | null {
@@ -119,7 +120,7 @@ export async function POST(
     });
 
     try {
-      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id, user_id: user.id, submission_id: randomUUID() } });
+      await inngest.send({ name: "recistep/import.transcript-submitted", data: { id, user_id: user.id, submission_id: randomUUID(), convert_cups_to_grams: parsed.data.convert_cups_to_grams } });
     } catch {
       await updateSourceImport(id, {
         status: "failed",

@@ -97,6 +97,7 @@ function writeStoredImportId(key: string, id: string | null): void {
 export default function HomePage() {
   const { supabase, accessToken, getAccessToken, signedInEmail } = useAuth();
   const [sourceUrl, setSourceUrl] = useState("");
+  const [convertCupsToGrams, setConvertCupsToGrams] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingTranscript, setIsSubmittingTranscript] = useState(false);
   const [selectedRecipeFile, setSelectedRecipeFile] = useState<File | null>(null);
@@ -164,7 +165,7 @@ export default function HomePage() {
           Authorization: "Bearer " + accessToken,
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify({ source_url: url, locale: "pt-BR" }),
+        body: JSON.stringify({ source_url: url, locale: "pt-BR", convert_cups_to_grams: convertCupsToGrams }),
       });
       const body = await response.json() as { data?: ImportRecord; error?: { message?: string } };
       if (!response.ok || !body.data?.id) {
@@ -195,7 +196,7 @@ export default function HomePage() {
       const response = await fetch("/api/v1/recipes/extract-transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
-        body: JSON.stringify({ transcript: text, locale: "pt-BR" }),
+        body: JSON.stringify({ transcript: text, locale: "pt-BR", convert_cups_to_grams: convertCupsToGrams }),
       });
       const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
       if (!response.ok || !body.data) {
@@ -505,7 +506,7 @@ export default function HomePage() {
       const response = await fetch("/api/v1/recipes/extract-transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-        body: JSON.stringify({ transcript: normalizedTranscript, locale: "pt-BR" }),
+        body: JSON.stringify({ transcript: normalizedTranscript, locale: "pt-BR", convert_cups_to_grams: convertCupsToGrams }),
       });
       const body = await response.json() as { data?: RecipeExtraction; error?: { message?: string } };
       if (!response.ok || !body.data) {
@@ -665,7 +666,7 @@ export default function HomePage() {
           Authorization: "Bearer " + accessToken,
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify({ source_url: sourceUrl, locale: "pt-BR" }),
+        body: JSON.stringify({ source_url: sourceUrl, locale: "pt-BR", convert_cups_to_grams: convertCupsToGrams }),
       });
 
       const body: {
@@ -721,6 +722,7 @@ export default function HomePage() {
       const formData = new FormData();
       formData.append("file", selectedRecipeFile);
       formData.append("locale", "pt-BR");
+      formData.append("convert_cups_to_grams", convertCupsToGrams ? "true" : "false");
       const response = await fetch("/api/v1/recipes/extract-file", {
         method: "POST",
         headers: { Authorization: "Bearer " + token },
@@ -763,7 +765,7 @@ export default function HomePage() {
           "Content-Type": "application/json",
           Authorization: "Bearer " + accessToken,
         },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ transcript, convert_cups_to_grams: convertCupsToGrams }),
       });
       const body = await response.json() as {
         data?: { id: string; status: string };
@@ -847,9 +849,13 @@ export default function HomePage() {
                     {!isSubmitting && <span aria-hidden="true">↗</span>}
                   </button>
                 </div>
-                <p className="field-hint" id="supported-sources">
-                  YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
-                </p>
+                 <label className="inline-checkbox">
+                   <input type="checkbox" checked={convertCupsToGrams} onChange={(event) => setConvertCupsToGrams(event.target.checked)} />
+                   Converter xícara para gramas
+                 </label>
+                 <p className="field-hint" id="supported-sources">
+                   YouTube, TikTok e Instagram. A análise depende do acesso permitido à fonte.
+                 </p>
               </form>
                     ),
                   },
@@ -881,9 +887,13 @@ export default function HomePage() {
                     {isExtractingFile ? "Analisando arquivo…" : "Extrair receita"}
                   </button>
                 </div>
-                <span className="field-hint" id="recipe-file-help">
-                  {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
-                </span>
+                 <label className="inline-checkbox">
+                   <input type="checkbox" checked={convertCupsToGrams} onChange={(event) => setConvertCupsToGrams(event.target.checked)} />
+                   Converter xícara para gramas
+                 </label>
+                 <span className="field-hint" id="recipe-file-help">
+                   {selectedRecipeFile ? `${selectedRecipeFile.name} · ${(selectedRecipeFile.size / (1024 * 1024)).toFixed(2)} MB` : "O arquivo é enviado para análise e usado apenas para gerar um rascunho."}
+                 </span>
               </form>
                     ),
                   },
@@ -901,6 +911,10 @@ export default function HomePage() {
                     onChange={setVoiceRecipeTranscript}
                     disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe}
                   />
+                  <label className="inline-checkbox">
+                    <input type="checkbox" checked={convertCupsToGrams} onChange={(event) => setConvertCupsToGrams(event.target.checked)} />
+                    Converter xícara para gramas
+                  </label>
                   <button className="import-button transcript-submit" type="submit" disabled={isExtractingVoiceRecipe || isSavingVoiceRecipe || voiceRecipeTranscript.trim().length < 80}>
                     {isExtractingVoiceRecipe ? "Montando rascunho…" : "Gerar rascunho da receita"}
                   </button>
@@ -1013,8 +1027,12 @@ export default function HomePage() {
                     placeholder="Cole aqui a transcrição falada ou o texto da receita que você tem direito de usar."
                     required
                   />
-                  <p className="field-hint">O Recistep não baixa o vídeo nem contorna restrições. A transcrição é apagada após o processamento terminal.</p>
-                  <button className="import-button transcript-submit" type="submit" disabled={isSubmittingTranscript}>
+                   <label className="inline-checkbox">
+                     <input type="checkbox" checked={convertCupsToGrams} onChange={(event) => setConvertCupsToGrams(event.target.checked)} />
+                     Converter xícara para gramas
+                   </label>
+                   <p className="field-hint">O Recistep não baixa o vídeo nem contorna restrições. A transcrição é apagada após o processamento terminal.</p>
+                   <button className="import-button transcript-submit" type="submit" disabled={isSubmittingTranscript}>
                     {isSubmittingTranscript ? "Enviando…" : "Extrair receita"}
                   </button>
                 </form>

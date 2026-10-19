@@ -115,6 +115,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const convertCupsToGrams = form.get("convert_cups_to_grams") === "true" || form.get("convert_cups_to_grams") === "1";
 
   try {
     const bytes = new Uint8Array(await candidate.arrayBuffer());
@@ -123,6 +124,7 @@ export async function POST(request: Request) {
       mimeType,
       bytes,
       locale: localeResult.data,
+      ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
     });
     return NextResponse.json({ data: recipe });
   } catch (error) {

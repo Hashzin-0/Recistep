@@ -23,6 +23,7 @@ import {
   type PreparedMedia,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { streamExtractToImport } from "@/lib/providers/ai/stream-extractor";
+import { applyCupToGramsConversion } from "@/lib/recipe/cup-to-grams";
 
 export const processImportRequested = inngest.createFunction(
   {
@@ -47,6 +48,8 @@ export const processImportRequested = inngest.createFunction(
   async ({ event, step }) => {
     const id = String(event.data.id ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("INVALID_IMPORT_ID");
+
+    const convertCupsToGrams = Boolean(event.data.convert_cups_to_grams);
 
     const record = await step.run("load-import", async () => getSourceImport(id));
     if (!record) throw new Error("IMPORT_NOT_FOUND");
@@ -166,6 +169,7 @@ export const processImportRequested = inngest.createFunction(
             transcript: extraction.kind === "text" ? extraction.transcript : "",
             locale: record.locale,
             sourceTitle: metadata.title,
+            ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
           });
         }
         if (!preparedMedia) throw new Error("MISSING_PREPARED_MEDIA");
@@ -176,12 +180,15 @@ export const processImportRequested = inngest.createFunction(
           locale: record.locale,
           sourceTitle: metadata.title,
           fallbackTranscript,
+          ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
         });
       };
 
-      const draft = titleCache?.recipe_draft ?? await step.run("extract-recipe-from-public-source", async () =>
-        streamExtractToImport({ importId: id, stream: runExtraction() }),
-      );
+      const draft = titleCache?.recipe_draft
+        ? applyCupToGramsConversion(titleCache.recipe_draft as import("@/lib/schemas/recipe").RecipeExtraction, convertCupsToGrams)
+        : await step.run("extract-recipe-from-public-source", async () =>
+          streamExtractToImport({ importId: id, stream: runExtraction() }),
+        );
 
       if (preparedMedia) {
         const toDelete = preparedMedia;
@@ -256,6 +263,8 @@ export const processTranscriptSubmitted = inngest.createFunction(
     const id = String(event.data.id ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("INVALID_IMPORT_ID");
 
+    const convertCupsToGrams = Boolean(event.data.convert_cups_to_grams);
+
     // Read outside a durable step so the raw transcript is not persisted in Inngest step history.
     const record = await getSourceImport(id);
     if (!record) throw new Error("IMPORT_NOT_FOUND");
@@ -274,14 +283,15 @@ export const processTranscriptSubmitted = inngest.createFunction(
       const draft = await step.run("extract-structured-recipe-with-gemini", async () =>
         streamExtractToImport({
           importId: id,
-          stream: streamRecipeFromTranscript({
-            transcript: record.source_transcript!,
-            locale: record.locale,
-            sourceTitle:
-              typeof record.source_metadata?.title === "string"
-                ? record.source_metadata.title
-                : undefined,
-          }),
+           stream: streamRecipeFromTranscript({
+             transcript: record.source_transcript!,
+             locale: record.locale,
+             sourceTitle:
+               typeof record.source_metadata?.title === "string"
+                 ? record.source_metadata.title
+                 : undefined,
+             ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
+           }),
         }),
       );
 

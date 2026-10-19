@@ -7,19 +7,30 @@ import {
   type ManualRecipeVoiceBridge,
 } from "./manual-recipe-tools";
 import { createEmptyRecipe } from "@/lib/recipe/recipe-draft";
+import type { RecipeExtraction } from "@/lib/schemas/recipe";
 
 type ToolResult = { success?: boolean; error?: string } & Record<string, any>;
 
-function makeBridge(draft = createEmptyRecipe()): {
+function makeBridge(initialDraft = createEmptyRecipe()): {
   bridge: ManualRecipeVoiceBridge;
-  commit: ReturnType<typeof vi.fn>;
+  commits: RecipeExtraction[];
   save: ReturnType<typeof vi.fn>;
   cancel: ReturnType<typeof vi.fn>;
+  currentDraft: () => RecipeExtraction;
 } {
-  const commit = vi.fn();
+  const commits: RecipeExtraction[] = [];
+  const state = { draft: initialDraft };
   const save = vi.fn(async () => undefined);
   const cancel = vi.fn();
-  return { bridge: { draft, actions: { commit, save, cancel } }, commit, save, cancel };
+  const bridge: ManualRecipeVoiceBridge = {
+    get draft() { return state.draft; },
+    actions: {
+      commit: (next) => { commits.push(next); state.draft = next; },
+      save,
+      cancel,
+    },
+  };
+  return { bridge, commits, save, cancel, currentDraft: () => state.draft };
 }
 
 function run(bridge: ManualRecipeVoiceBridge, name: string, args: Record<string, unknown> = {}) {
@@ -47,27 +58,33 @@ describe("manual recipe tool declarations", () => {
 
 describe("executeManualRecipeEditTool", () => {
   it("adds an ingredient by delegating to the deterministic editor", async () => {
-    const { bridge, commit } = makeBridge();
+    const { bridge, commits } = makeBridge();
+    bridge.draft.title = "Teste";
+    bridge.draft.ingredients = [];
+    bridge.draft.steps = [{ position: 0, instruction: "Misture", duration_seconds: null, temperature_value: null, temperature_unit: null, source_evidence: null, confidence: 1 }];
     const before = bridge.draft.ingredients.length;
     const output = (await run(bridge, "addIngredient", { name: "farinha", quantity: 2, unit: "xícara" })) as ToolResult;
     expect(output.success).toBe(true);
-    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveLength(1);
     expect(bridge.draft.ingredients.length).toBe(before + 1);
     expect(bridge.draft.ingredients.at(-1)?.name).toBe("farinha");
   });
 
   it("rejects invalid edits without committing", async () => {
-    const { bridge, commit } = makeBridge();
+    const { bridge, commits } = makeBridge();
     expect(failure(await run(bridge, "updateTitle", { title: "" }))).toBeTruthy();
-    expect(commit).not.toHaveBeenCalled();
+    expect(commits).toHaveLength(0);
   });
 
   it("adds a step", async () => {
-    const { bridge, commit } = makeBridge();
+    const { bridge, commits } = makeBridge();
+    bridge.draft.title = "Teste";
+    bridge.draft.ingredients = [{ name: "farinha", section: "Ingredientes", quantity: 2, quantity_text: null, quantity_min: null, quantity_max: null, unit: "xícara", unit_normalized: null, notes: null, source_evidence: null, confidence: 1 }];
+    bridge.draft.steps = [{ position: 0, instruction: "Misture", duration_seconds: null, duration_text: null, duration_min_seconds: null, duration_max_seconds: null, temperature_value: null, temperature_unit: null, video_start_seconds: null, video_end_seconds: null, source_evidence: null, confidence: 1 }];
     const before = bridge.draft.steps.length;
     const output = (await run(bridge, "addStep", { instruction: "Misture tudo" })) as ToolResult;
     expect(output.success).toBe(true);
-    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveLength(1);
     expect(bridge.draft.steps.length).toBe(before + 1);
     expect(bridge.draft.steps.at(-1)?.instruction).toBe("Misture tudo");
   });
@@ -95,7 +112,7 @@ describe("executeManualRecipeEditTool", () => {
 
 describe("buildManualEditSystemInstruction", () => {
   it("instructs to ask for the name when the draft is empty", () => {
-    const draft = { ...createEmptyRecipe(), ingredients: [], steps: [] };
+    const draft = { ...createEmptyRecipe(), title: "", ingredients: [], steps: [] };
     const instruction = buildManualEditSystemInstruction(draft);
     expect(instruction).toContain("praticamente vazia");
     expect(instruction).toContain("Nunca invente");
@@ -105,8 +122,8 @@ describe("buildManualEditSystemInstruction", () => {
     const draft = createEmptyRecipe();
     draft.title = "Bolo de fubá";
     draft.servings = 8;
-    draft.ingredients.push({ name: "fubá", quantity: 2, unit: "xícara", notes: null, position: 0 });
-    draft.steps.push({ instruction: "Misture e asse", position: 0, duration_seconds: null, temperature_value: null, temperature_unit: null, video_start_seconds: null });
+    draft.ingredients.push({ name: "fubá", quantity: 2, unit: "xícara", notes: null, source_evidence: null, confidence: 1 });
+    draft.steps.push({ position: 1, instruction: "Misture e asse", duration_seconds: null, temperature_value: null, temperature_unit: null, source_evidence: null, confidence: 1 });
     const instruction = buildManualEditSystemInstruction(draft);
     expect(instruction).toContain("Bolo de fubá");
     expect(instruction).toContain("fubá");

@@ -385,6 +385,8 @@ export function instructionHasExplicitTime(instruction: string): boolean {
 /**
  * Extracts the first time-like phrase from an instruction, if any.
  */
+export * from "./cup-to-grams";
+
 export function extractTimePhrase(instruction: string): string | null {
   const text = instruction.toLocaleLowerCase("pt-BR");
   const patterns = [

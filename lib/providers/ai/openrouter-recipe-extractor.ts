@@ -183,7 +183,7 @@ function responseText(raw: unknown): string {
   return "";
 }
 
-function validateRecipeText(recipeText: string): RecipeExtraction {
+function validateRecipeText(recipeText: string, options: { convertCupsToGrams?: boolean } = {}): RecipeExtraction {
   let decoded: unknown;
   try {
     decoded = JSON.parse(recipeText);
@@ -194,7 +194,7 @@ function validateRecipeText(recipeText: string): RecipeExtraction {
   if (!parsed.success) {
     throw new GeminiExtractionError("OPENROUTER_OUTPUT_SCHEMA_INVALID", true);
   }
-  return finalizeRecipe(parsed.data);
+  return finalizeRecipe(parsed.data, { convertCupsToGrams: options.convertCupsToGrams });
 }
 
 async function openResponse(content: OpenRouterContentPart[]): Promise<Response> {
@@ -219,6 +219,7 @@ async function openResponse(content: OpenRouterContentPart[]): Promise<Response>
 
 export async function generateStructuredRecipeViaOpenRouter(
   parts: ProviderPart[],
+  options: { convertCupsToGrams?: boolean } = {},
 ): Promise<RecipeExtraction> {
   const content = toOpenRouterContent(parts);
   if (!content) throw new GeminiExtractionError("OPENROUTER_UNSUPPORTED_INPUT", false);
@@ -235,7 +236,7 @@ export async function generateStructuredRecipeViaOpenRouter(
     throw new GeminiExtractionError("OPENROUTER_EMPTY_RESPONSE", true);
   }
   console.info(`[ai-provider] openrouter served recipe (model=${payload.model ?? model()})`);
-  return validateRecipeText(recipeText);
+  return validateRecipeText(recipeText, { convertCupsToGrams: options.convertCupsToGrams });
 }
 
 /** Streams SSE chunks, ignoring OpenRouter comment frames and `[DONE]`. */
@@ -265,6 +266,7 @@ function openStreamingResponse(content: OpenRouterContentPart[]): Promise<Respon
  */
 export async function* streamStructuredRecipeViaOpenRouter(
   parts: ProviderPart[],
+  options: { convertCupsToGrams?: boolean } = {},
 ): AsyncGenerator<RecipeExtraction, void, undefined> {
   const content = toOpenRouterContent(parts);
   if (!content) throw new GeminiExtractionError("OPENROUTER_UNSUPPORTED_INPUT", false);
@@ -313,7 +315,7 @@ export async function* streamStructuredRecipeViaOpenRouter(
     raw = isLast ? "" : (lines.pop() ?? "");
     for (const line of lines) consumeLine(line);
     const decoded = parsePartialJson(recipeText);
-    return decoded === undefined ? null : normalizePartialRecipe(decoded);
+    return decoded === undefined ? null : normalizePartialRecipe(decoded, { convertCupsToGrams: options.convertCupsToGrams });
   };
 
   try {
@@ -342,7 +344,7 @@ export async function* streamStructuredRecipeViaOpenRouter(
     throw new GeminiExtractionError("OPENROUTER_EMPTY_RESPONSE", true);
   }
   emittedSignature = "";
-  const recipe = validateRecipeText(recipeText);
+  const recipe = validateRecipeText(recipeText, { convertCupsToGrams: options.convertCupsToGrams });
   console.info(`[ai-provider] openrouter served recipe (model=${observedModel || model()})`);
   yield recipe;
 }
