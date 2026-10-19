@@ -8,6 +8,8 @@ function baseDraft(overrides: Partial<RecipeExtraction> = {}): RecipeExtraction 
     description: null,
     source_language: "pt-BR",
     servings: 8,
+    cover_image_url: null,
+    utensils: [],
     timings: { prep_seconds: null, cook_seconds: null, total_seconds: null },
     ingredients: [
       {
