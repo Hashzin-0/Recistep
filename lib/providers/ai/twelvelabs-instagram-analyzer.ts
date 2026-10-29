@@ -63,7 +63,7 @@ export async function analyzeInstagramRecipeVideo(mediaUrl: string): Promise<str
     assetId = asset.id;
     if (!assetId) throw new Error("TWELVELABS_ASSET_CREATE_FAILED");
 
-    let status = asset.status;
+    let status: string | null | undefined = asset.status;
     for (let attempt = 0; status !== "ready" && status !== "failed" && attempt < ASSET_READY_ATTEMPTS; attempt += 1) {
       await delay(ASSET_READY_DELAY_MS);
       const current = await client.assets.retrieve(assetId);
