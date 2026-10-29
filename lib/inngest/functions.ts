@@ -24,7 +24,7 @@ import {
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { streamExtractToImport } from "@/lib/providers/ai/stream-extractor";
 import { applyCupToGramsConversion } from "@/lib/recipe/cup-to-grams";
-import { analyzeInstagramRecipeVideo, isTwelveLabsConfigured } from "@/lib/providers/ai/twelvelabs-instagram-analyzer";
+
 
 async function* streamInstagramRecipeFromVideo(input: {
   mediaUrl: string;
@@ -35,6 +35,7 @@ async function* streamInstagramRecipeFromVideo(input: {
 }): AsyncGenerator<import("@/lib/schemas/recipe").RecipeExtraction, void, undefined> {
   let analysis: string;
   try {
+    const { analyzeInstagramRecipeVideo } = await import("@/lib/providers/ai/twelvelabs-instagram-analyzer");
     analysis = await analyzeInstagramRecipeVideo(input.mediaUrl);
     console.info("[ai-provider] twelvelabs served Instagram video analysis");
   } catch {
@@ -212,7 +213,7 @@ export const processImportRequested = inngest.createFunction(
       // bytes never enter step history and the extraction step stays short.
       let preparedMedia: PreparedMedia | null = null;
       const useTwelveLabsForInstagram =
-        record.platform === "instagram" && Boolean(media) && isTwelveLabsConfigured();
+        record.platform === "instagram" && Boolean(media) && Boolean(process.env.TWELVELABS_API_KEY?.trim());
       if (!titleCache?.recipe_draft && media && !useTwelveLabsForInstagram) {
         const mediaToPrepare = media;
         preparedMedia = await step.run("prepare-public-media", async () =>
