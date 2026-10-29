@@ -10,14 +10,16 @@ const sdkMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("twelvelabs-js", () => ({
-  TwelveLabs: vi.fn().mockImplementation(() => ({
-    assets: {
-      create: sdkMocks.assetCreate,
-      retrieve: sdkMocks.assetRetrieve,
-      delete: sdkMocks.assetDelete,
-    },
-    analyze: sdkMocks.analyze,
-  })),
+  TwelveLabs: vi.fn(function TwelveLabsMock() {
+    return {
+      assets: {
+        create: sdkMocks.assetCreate,
+        retrieve: sdkMocks.assetRetrieve,
+        delete: sdkMocks.assetDelete,
+      },
+      analyze: sdkMocks.analyze,
+    };
+  }),
 }));
 
 import { analyzeInstagramRecipeVideo, isTwelveLabsConfigured } from "./twelvelabs-instagram-analyzer";
