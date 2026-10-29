@@ -24,6 +24,60 @@ import {
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { streamExtractToImport } from "@/lib/providers/ai/stream-extractor";
 import { applyCupToGramsConversion } from "@/lib/recipe/cup-to-grams";
+import { analyzeInstagramRecipeVideo, isTwelveLabsConfigured } from "@/lib/providers/ai/twelvelabs-instagram-analyzer";
+
+async function* streamInstagramRecipeFromVideo(input: {
+  mediaUrl: string;
+  fallbackTranscript?: string;
+  locale: string;
+  sourceTitle: string;
+  convertCupsToGrams: boolean;
+}): AsyncGenerator<import("@/lib/schemas/recipe").RecipeExtraction, void, undefined> {
+  let analysis: string;
+  try {
+    analysis = await analyzeInstagramRecipeVideo(input.mediaUrl);
+    console.info("[ai-provider] twelvelabs served Instagram video analysis");
+  } catch {
+    // Preserve the existing Gemini video path when TwelveLabs cannot access or
+    // analyze this public CDN URL. The failure is visible in logs, not silent.
+    console.warn("[ai-provider] TwelveLabs Instagram analysis failed; falling back to Gemini video");
+    const prepared = await prepareMediaForGemini({
+      mediaUrl: input.mediaUrl,
+      platform: "instagram",
+      mimeType: "video/mp4",
+    });
+    try {
+      yield* streamRecipeFromPreparedMedia({
+        media: prepared,
+        platform: "instagram",
+        locale: input.locale,
+        sourceTitle: input.sourceTitle,
+        fallbackTranscript: input.fallbackTranscript,
+        ...(input.convertCupsToGrams ? { convertCupsToGrams: true } : {}),
+      });
+    } finally {
+      try {
+        await deletePreparedMedia(prepared);
+      } catch {
+        console.warn("[ai-provider] failed to clean up Gemini fallback media");
+      }
+    }
+    return;
+  }
+
+  const transcript = [
+    "Narração audiovisual gerada a partir do vídeo do Instagram:",
+    analysis,
+    input.fallbackTranscript ? `Legenda pública do Instagram:\n${input.fallbackTranscript}` : "",
+  ].filter(Boolean).join("\n\n");
+
+  yield* streamRecipeFromTranscript({
+    transcript,
+    locale: input.locale,
+    sourceTitle: input.sourceTitle,
+    ...(input.convertCupsToGrams ? { convertCupsToGrams: true } : {}),
+  });
+}
 
 export const processImportRequested = inngest.createFunction(
   {
@@ -157,7 +211,9 @@ export const processImportRequested = inngest.createFunction(
       // Downloading and uploading the video runs in its own durable step so the
       // bytes never enter step history and the extraction step stays short.
       let preparedMedia: PreparedMedia | null = null;
-      if (!titleCache?.recipe_draft && media) {
+      const useTwelveLabsForInstagram =
+        record.platform === "instagram" && Boolean(media) && isTwelveLabsConfigured();
+      if (!titleCache?.recipe_draft && media && !useTwelveLabsForInstagram) {
         const mediaToPrepare = media;
         preparedMedia = await step.run("prepare-public-media", async () =>
           prepareMediaForGemini({
@@ -175,6 +231,15 @@ export const processImportRequested = inngest.createFunction(
             locale: record.locale,
             sourceTitle: metadata.title,
             ...(convertCupsToGrams ? { convertCupsToGrams: true } : {}),
+          });
+        }
+        if (useTwelveLabsForInstagram && media.kind === "external_media") {
+          return streamInstagramRecipeFromVideo({
+            mediaUrl: media.mediaUrl,
+            fallbackTranscript,
+            locale: record.locale,
+            sourceTitle: metadata.title,
+            convertCupsToGrams,
           });
         }
         if (!preparedMedia) throw new Error("MISSING_PREPARED_MEDIA");
