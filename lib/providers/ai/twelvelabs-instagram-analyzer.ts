@@ -60,7 +60,7 @@ export async function analyzeInstagramRecipeVideo(mediaUrl: string): Promise<str
       method: "url",
       url: parsedUrl.toString(),
     });
-    assetId = asset.id;
+    assetId = asset.id ?? null;
     if (!assetId) throw new Error("TWELVELABS_ASSET_CREATE_FAILED");
 
     let status: string | null | undefined = asset.status;
