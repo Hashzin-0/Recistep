@@ -27,6 +27,11 @@ vi.mock("@/lib/providers/media/public-subtitles", () => ({
   fetchPublicSubtitlesText: vi.fn(),
 }));
 
+vi.mock("@/lib/providers/ai/twelvelabs-instagram-analyzer", () => ({
+  analyzeInstagramRecipeVideo: vi.fn(),
+  isTwelveLabsConfigured: vi.fn().mockReturnValue(false),
+}));
+
 vi.mock("@/lib/providers/ai/gemini-recipe-extractor", () => {
   class GeminiExtractionError extends Error {
     constructor(
@@ -59,6 +64,7 @@ import {
   streamRecipeFromTranscript,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
+import { analyzeInstagramRecipeVideo, isTwelveLabsConfigured } from "@/lib/providers/ai/twelvelabs-instagram-analyzer";
 import type { SourceConnector, ResolvedSource } from "@/lib/providers/sources/source-connector";
 
 const IMPORT_ID = "11111111-2222-4333-8444-555555555555";
@@ -152,9 +158,48 @@ beforeEach(() => {
   vi.mocked(streamRecipeFromPreparedMedia).mockReset();
   vi.mocked(streamRecipeFromTranscript).mockReset();
   vi.mocked(fetchPublicSubtitlesText).mockReset();
+  vi.mocked(analyzeInstagramRecipeVideo).mockReset();
+  vi.mocked(isTwelveLabsConfigured).mockReturnValue(false);
 });
 
 describe("processImportRequested", () => {
+  it("uses TwelveLabs audiovisual analysis only for Instagram videos when configured", async () => {
+    const draft = { title: "Bolo de cenoura" };
+    const narration = "A pessoa mistura farinha, ovos e leite em uma tigela e leva a massa ao forno por 35 minutos.".padEnd(100, " ");
+    const caption = "Receita de bolo de cenoura: ingredientes e modo de preparo.".padEnd(90, " ");
+    vi.mocked(getSourceImport).mockResolvedValue(sourceImport({
+      platform: "instagram",
+      source_url: "https://www.instagram.com/reel/ABC123/",
+    }) as never);
+    vi.mocked(getSourceConnector).mockReturnValue({
+      platform: "instagram",
+      resolve: vi.fn(async () => resolvedSource({
+        kind: "external_media",
+        mediaUrl: "https://scontent.cdninstagram.com/v/reel-video.mp4",
+        mimeType: "video/mp4",
+        fallbackText: caption,
+      })),
+    });
+    vi.mocked(isTwelveLabsConfigured).mockReturnValue(true);
+    vi.mocked(analyzeInstagramRecipeVideo).mockResolvedValue(narration);
+    stubTextStream(draft);
+
+    const result = await handler({ event: { data: { id: IMPORT_ID } }, step: immediateStep });
+
+    expect(result).toMatchObject({ id: IMPORT_ID, status: "review_required" });
+    expect(analyzeInstagramRecipeVideo).toHaveBeenCalledWith("https://scontent.cdninstagram.com/v/reel-video.mp4");
+    expect(streamRecipeFromTranscript).toHaveBeenCalledWith(expect.objectContaining({
+      locale: "pt-BR",
+      sourceTitle: "Bolo de cenoura",
+      transcript: expect.stringContaining(narration.trim()),
+    }));
+    expect(streamRecipeFromTranscript).toHaveBeenCalledWith(expect.objectContaining({
+      transcript: expect.stringContaining(caption),
+    }));
+    expect(prepareMediaForGemini).not.toHaveBeenCalled();
+    expect(streamRecipeFromPreparedMedia).not.toHaveBeenCalled();
+  });
+
   it("streams a recipe from the media resolved by the platform connector", async () => {
     const draft = { title: "Bolo de cenoura" };
     stubConnector(async () => resolvedSource({
