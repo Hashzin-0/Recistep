@@ -64,7 +64,7 @@ import {
   streamRecipeFromTranscript,
 } from "@/lib/providers/ai/gemini-recipe-extractor";
 import { fetchPublicSubtitlesText } from "@/lib/providers/media/public-subtitles";
-import { analyzeInstagramRecipeVideo, isTwelveLabsConfigured } from "@/lib/providers/ai/twelvelabs-instagram-analyzer";
+import { analyzeInstagramRecipeVideo } from "@/lib/providers/ai/twelvelabs-instagram-analyzer";
 import type { SourceConnector, ResolvedSource } from "@/lib/providers/sources/source-connector";
 
 const IMPORT_ID = "11111111-2222-4333-8444-555555555555";
@@ -159,7 +159,7 @@ beforeEach(() => {
   vi.mocked(streamRecipeFromTranscript).mockReset();
   vi.mocked(fetchPublicSubtitlesText).mockReset();
   vi.mocked(analyzeInstagramRecipeVideo).mockReset();
-  vi.mocked(isTwelveLabsConfigured).mockReturnValue(false);
+  vi.stubEnv("TWELVELABS_API_KEY", "");
 });
 
 describe("processImportRequested", () => {
@@ -180,7 +180,7 @@ describe("processImportRequested", () => {
         fallbackText: caption,
       })),
     });
-    vi.mocked(isTwelveLabsConfigured).mockReturnValue(true);
+    vi.stubEnv("TWELVELABS_API_KEY", "test-api-key");
     vi.mocked(analyzeInstagramRecipeVideo).mockResolvedValue(narration);
     stubTextStream(draft);
 
