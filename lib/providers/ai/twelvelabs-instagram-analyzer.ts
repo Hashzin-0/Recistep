@@ -67,7 +67,7 @@ export async function analyzeInstagramRecipeVideo(mediaUrl: string): Promise<str
     for (let attempt = 0; status !== "ready" && status !== "failed" && attempt < ASSET_READY_ATTEMPTS; attempt += 1) {
       await delay(ASSET_READY_DELAY_MS);
       const current = await client.assets.retrieve(assetId);
-      status = current.status;
+      status = current.status ?? null;
     }
 
     if (status !== "ready") {
